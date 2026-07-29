@@ -52,6 +52,22 @@ WHICH WAY IT FAILS
     embarrassment; a channel that goes silent because an API had a bad afternoon
     is a bigger problem. Note that the editor node does the opposite — see the
     note at the top of nodes/editor.py. The asymmetry is deliberate.
+
+FAILING OPEN IS FINE. FAILING OPEN IN SILENCE IS NOT.
+    That decision above is right, and it had a hole in it: nothing anywhere
+    recorded that the check had failed. A dedup_hit row is only written when two
+    items MATCH, so "check 4 ran and found nothing close enough" and "check 4
+    never ran because the API was down and we waved everything through" produced
+    byte-identical evidence — which is to say none.
+
+    That is not a theoretical worry. Three tweets about the same Fed decision
+    published within four minutes of each other, and there was no way to tell
+    from the database which of those two things had happened.
+
+    So every failure is now counted, logged, and alerted on after a run of them,
+    and tools/check_dedup.py answers the question directly. The rule the rest of
+    this project already follows applies here too: a filter you cannot inspect
+    is a filter you cannot fix.
 """
 
 from __future__ import annotations
@@ -62,6 +78,58 @@ import config
 from utils import db, logger as log_setup, textclean
 
 log = log_setup.get("dedup")
+
+# How many meaning checks have failed in a row. A single failure is a network
+# blip and not worth anyone's attention; a run of them means the check is off,
+# and every item since the run started went out unchecked.
+_consecutive_meaning_failures = 0
+
+# Alert after this many in a row. Deliberately small: at one item every couple
+# of minutes, ten failures is roughly twenty minutes of a channel with no
+# duplicate detection at all, which is long enough to publish the same story
+# three times — and short enough that you hear about it the first time.
+MEANING_FAILURE_ALERT_AFTER = 10
+
+# Log a NEAR MISS — two items that looked related but scored under the threshold
+# — when the score is at least this. Below it the pair is genuinely unrelated
+# and recording it would just be noise.
+#
+# This is what turns "check 4 caught nothing" into an answerable question. If
+# your channel carries the same story twice and the pair is sitting in this list
+# at 0.84 against a 0.86 threshold, you do not have a broken check — you have a
+# threshold two points too high, and now you can see that.
+NEAR_MISS_FLOOR = 0.70
+
+
+def _record_meaning_failure(item_id: int) -> None:
+    """Count a failed meaning check, and shout if they are piling up."""
+    global _consecutive_meaning_failures
+    _consecutive_meaning_failures += 1
+    db.bump_counter("meaning_check_failed")
+
+    log.warning("Meaning check unavailable — item %s goes through UNCHECKED "
+                "(%d in a row)", item_id, _consecutive_meaning_failures)
+
+    if _consecutive_meaning_failures == MEANING_FAILURE_ALERT_AFTER:
+        from utils import telegram_error
+        telegram_error.send_error(
+            f"The duplicate MEANING check has failed "
+            f"{_consecutive_meaning_failures} times in a row. Every item since "
+            f"then has been published without it, so the same story can now "
+            f"appear several times from different sources. This check fails "
+            f"open on purpose, which is why nothing looks broken.\n\n"
+            f"Run: python3 tools/check_dedup.py",
+            node_name="dedup_meaning",
+        )
+
+
+def _record_meaning_success() -> None:
+    """Reset the run of failures after a check that worked."""
+    global _consecutive_meaning_failures
+    if _consecutive_meaning_failures:
+        log.info("Meaning check is working again after %d failure(s)",
+                 _consecutive_meaning_failures)
+        _consecutive_meaning_failures = 0
 
 
 # --- Check 2: have we seen this exact headline recently? ---
@@ -177,8 +245,10 @@ async def check_meaning(item_id: int, title: str, body: str, item_norm_title: st
 
     vector = await embeddings.embed_one(text)
     if vector is None:
-        log.warning("Meaning check unavailable — treating item %s as new", item_id)
+        _record_meaning_failure(item_id)
         return False
+
+    _record_meaning_success()
 
     # Remember this item's meaning so future items can be compared against it,
     # whether or not it turns out to be a duplicate itself.
@@ -189,10 +259,27 @@ async def check_meaning(item_id: int, title: str, body: str, item_norm_title: st
     if not candidates:
         return False
 
-    matches = embeddings.most_similar(
-        vector, candidates, top_k=1, threshold=config.COSINE_THRESHOLD
-    )
+    # Ask for the best match REGARDLESS of the threshold, so that a near miss
+    # leaves a trace. Without this, an item scoring 0.84 against a threshold of
+    # 0.86 was indistinguishable from one scoring 0.11 — and it is precisely the
+    # near misses that tell you the threshold is set wrong.
+    best = embeddings.most_similar(vector, candidates, top_k=1, threshold=0.0)
+    matches = [m for m in best if m[1] >= config.COSINE_THRESHOLD]
+
     if not matches:
+        if best:
+            near_id, near_score = best[0]
+            if near_score >= NEAR_MISS_FLOOR:
+                near = db.get_item(near_id)
+                db.log_dedup_hit(
+                    item_id=item_id, matched_item_id=near_id, rung="embedding",
+                    score=near_score, kept=True,
+                    detail=(f"KEPT (below the {config.COSINE_THRESHOLD} threshold): "
+                            f"{title[:120]} ~ {(near['title'] if near else '')[:120]}"),
+                )
+                log.info("Near miss on meaning (%.3f, threshold %.2f): %r ≈ %r",
+                         near_score, config.COSINE_THRESHOLD, title[:60],
+                         (near["title"] if near else "")[:60])
         return False
 
     matched_id, score = matches[0]
