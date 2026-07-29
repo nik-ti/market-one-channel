@@ -81,8 +81,11 @@ def init_db() -> None:
 #
 # Format:  "table name": [("column name", "the ALTER TABLE statement"), ...]
 _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
-    # Example, for when the time comes:
-    # "items": [("language", "ALTER TABLE items ADD COLUMN language TEXT DEFAULT ''")],
+    # Which market the sorter said has to reprice because of this item — see
+    # nodes/sorter.py. Added after the "market impact" score turned out to be
+    # unreviewable without it: a bare 4 tells you nothing about WHY the model
+    # thought a trader would care.
+    "items": [("market", "ALTER TABLE items ADD COLUMN market TEXT DEFAULT ''")],
 }
 
 
@@ -375,11 +378,18 @@ def set_item_status(item_id: int, status: str, reason: str = "") -> None:
     conn().commit()
 
 
-def set_item_sorting(item_id: int, topic: str, importance: int) -> None:
-    """Record what the AI decided an item is about and how much it matters."""
+def set_item_sorting(item_id: int, topic: str, importance: int,
+                     market: str = "") -> None:
+    """Record what the AI decided an item is about and how much it matters.
+
+    `market` is the market the sorter said has to reprice, or 'none'. It is
+    stored for every item, including the ones that get dropped — that is what
+    makes tools/stats.py --dropped able to show you why the gate binned things.
+    """
     conn().execute(
-        "UPDATE items SET topic = ?, importance = ?, updated_at = ? WHERE id = ?",
-        (topic, importance, now_iso(), item_id),
+        "UPDATE items SET topic = ?, importance = ?, market = ?, updated_at = ? "
+        "WHERE id = ?",
+        (topic, importance, market, now_iso(), item_id),
     )
     conn().commit()
 
@@ -463,6 +473,54 @@ def trim_queue(max_size: int) -> int:
     )
     conn().commit()
     return cursor.rowcount
+
+
+def recent_low_impact(limit: int, market: str = "") -> list[sqlite3.Row]:
+    """Return real news the importance gate refused to publish, newest first.
+
+    The counterpart to recent editor rejections. The editor has been auditable
+    since day one; the importance gate was not, even though it throws away far
+    more — and unlike the editor it drops items BEFORE any post exists, so
+    nothing else records that they were ever considered.
+
+    Pass a market name to see only what was dropped in one category. Asking for
+    'none' is the useful one: it shows every story the model said had no
+    consequence for any market, which is the judgement most worth checking.
+    """
+    sql = """
+        SELECT id, source_name, title, topic, market, importance,
+               status_reason, updated_at
+          FROM items
+         WHERE status = 'low_impact'
+    """
+    params: list[Any] = []
+    if market:
+        sql += " AND market = ?"
+        params.append(market)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    return list(conn().execute(sql, tuple(params)))
+
+
+def market_breakdown(days: int) -> list[sqlite3.Row]:
+    """Count scored items by market and outcome, for the stats report.
+
+    Shows where the gate is spending its 'none' verdicts. If a market you care
+    about never appears, either no source covers it or the prompt's definition
+    of it is too narrow.
+    """
+    return list(conn().execute(
+        f"""
+        SELECT market,
+               COUNT(*) AS seen,
+               SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) AS published
+          FROM items
+         WHERE market != ''
+           AND updated_at > datetime('now', '-{int(days)} days')
+         GROUP BY market
+         ORDER BY seen DESC
+        """
+    ))
 
 
 # =============================================================================

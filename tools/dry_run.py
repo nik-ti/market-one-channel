@@ -15,11 +15,17 @@ WHY THIS TOOL MATTERS MORE THAN THE OTHERS
     Use it properly:
       1. Run it over 20-30 real items.
       2. Read every post. Is that the voice you want for the channel?
-      3. Read every REJECTION especially carefully. Was the editor right? A
+      3. Read every 📉 BELOW THE BAR line. Those are real stories the channel
+         chose not to run, with the market the sorter said would have to
+         reprice. This is where you find out whether the channel is about to be
+         full of things nobody trades on — or about to be silent. Tune it in
+         PROMPT at the top of nodes/sorter.py.
+      4. Read every REJECTION especially carefully. Was the editor right? A
          project on this machine lost 15% of its finished posts to an editor
          nobody checked.
-      4. Adjust the prompts — PROMPT at the top of nodes/writer.py and
-         nodes/editor.py — and run it again. Iteration here is free and instant.
+      5. Adjust the prompts — PROMPT at the top of nodes/sorter.py,
+         nodes/writer.py and nodes/editor.py — and run it again. Iteration here
+         is free and instant.
 
 WHAT IT COSTS
     About $0.002 per item, so a 25-item run is roughly five cents.
@@ -90,6 +96,23 @@ async def _process(item, index: int, total: int, args) -> str:
             print(f"      reason: {verdict['reason']}")
         return "irrelevant"
 
+    # The importance gate, exactly as the live loop applies it.
+    #
+    # This rehearsal used to skip this check and write every relevant item,
+    # which quietly made it a rehearsal of a different pipeline: it showed
+    # finished posts for stories the channel would never have run, and — worse
+    # for tuning — showed none of the stories the gate had thrown away. Since
+    # the gate is the main control on what the channel feels like, a rehearsal
+    # that ignored it was hiding the setting you most need to see.
+    if verdict["importance"] < config.MIN_IMPORTANCE:
+        if not args.declined:
+            print(f"\n{header}")
+            print(f"   📉 BELOW THE BAR ({verdict['topic']} · market "
+                  f"{verdict['market']} · {verdict['importance']}/5, need "
+                  f"{config.MIN_IMPORTANCE}) — {title}")
+            print(f"      reason: {verdict['reason']}")
+        return "low_impact"
+
     if args.topic and verdict["topic"] != args.topic:
         return "filtered"
 
@@ -112,8 +135,8 @@ async def _process(item, index: int, total: int, args) -> str:
     image_note = "  🖼 with image" if has_image else ""
     brief_note = "  ⚡ brief" if writer.is_brief(item) else ""
     print(f"\n{header}")
-    print(f"   {verdict['topic']} · importance {verdict['importance']}{image_note} · "
-          f"{len(post)} chars")
+    print(f"   {verdict['topic']} · market {verdict['market']} · "
+          f"importance {verdict['importance']}{image_note} · {len(post)} chars")
     print(LINE)
     print(_render(post, verdict["topic"], item["url"], brief=writer.is_brief(item)))
     print(LINE)
@@ -162,6 +185,7 @@ async def main() -> None:
         return
 
     print(f"\nRehearsing {len(items)} item(s). Nothing will be sent.")
+    print(f"Publishing anything scored {config.MIN_IMPORTANCE}/5 or above.")
     print(f"Models — sorting: {sorter.MODEL}")
     print(f"         writer: {writer.MODEL}")
     print(f"         editor: {editor.MODEL}")
@@ -182,7 +206,8 @@ async def main() -> None:
         "approved": "✅ would be published",
         "declined": "❌ rejected by the editor",
         "duplicate": "🔁 already covered",
-        "irrelevant": "⛔ not worth covering",
+        "irrelevant": "⛔ not news, or not our subject",
+        "low_impact": "📉 real news, nothing to reprice",
         "write_failed": "❌ the writer failed",
         "editor_error": "⚠️  the editor was unreachable",
         "filtered": "   (other topics, hidden)",

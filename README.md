@@ -36,7 +36,8 @@ Feeds are checked every 10 minutes; tweets arrive continuously.
     │                     CHECK 4: same meaning?   (embeddings, ~$0.000002)
     │            │                                                       │
     │            ▼                                                       │
-    │   2.  sorter.py     AI · is it news? market impact 1-5?           │
+    │   2.  sorter.py     AI · is it news? which market reprices?        │
+    │            │        market impact 1-5 · "none" is capped at 3      │
     │            │        drops anything below MIN_IMPORTANCE (4)         │
     │            ▼                                                       │
     │   3.  writer.py     RSS: AI rewrite · X: passed through as-is      │
@@ -109,7 +110,11 @@ python3 tools/dry_run.py --limit 25 # run it all through, printed here
 ```
 
 That costs about five cents and sends nothing. Read every post — is that the
-voice you want? Then read every **rejection** especially carefully.
+voice you want? Then read every **rejection** especially carefully, and every
+**📉 BELOW THE BAR** line: those are real stories the channel chose not to run,
+shown with the market that would have had to reprice. That list is where you
+find out whether the channel is about to be full of things nobody trades on, or
+about to be silent.
 
 This matters because of a real failure on this machine: a sibling project
 (`systems/nmd_consulting`) has an editor node that quietly destroyed **110 of its
@@ -176,10 +181,34 @@ completely different events. It has already earned its keep: it rescued two
 different weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
 
 ### `sorter.py` (AI)
-- **What:** is this news at all, what topic, and how market-moving (1-5)?
+- **What:** is this news at all, what topic, **which market has to reprice**, and
+  how market-moving (1-5)?
 - **The volume control.** Anything scoring below `MIN_IMPORTANCE` (4) is dropped.
   A ban that has *happened* is a 4; one being *considered* is a 3. Roughly 85% of
   general news is filtered out here.
+- **This is the only node that asks "should we cover this?"** The editor
+  downstream checks a finished post against its source — accuracy, hedging,
+  format, safety — and its rule list contains nothing about a story being dull,
+  deliberately. So when something uninteresting reaches the channel, this prompt
+  is what needs changing, not the editor's.
+- **It names the market before it scores.** The rubric used to ask only whether
+  something had been "decided, enforced, or broken", which is an event test, and
+  a war produces qualifying events daily. It let through *"Russian retailer
+  evacuates warehouses after drone attacks"* — a real event, correctly filed as
+  geopolitics, genuinely different from yesterday, and useless to anyone holding
+  a position. The model now picks one of `crypto`, `rates_fx`, `energy`,
+  `commodities`, `equities`, `risk_sentiment` or **`none`**, and `none` caps the
+  score at 3 **in code**, not just in the prompt. A named transmission channel is
+  a concrete claim you can disagree with later; "feels important" is not.
+- **Two tests that stop a running conflict flooding the channel:** the
+  *continuing-story* test (another instalment of something already underway is a
+  3 unless it crosses a line — a new participant, a new class of target, a
+  changed rule) and the *priced-in* test (a confirmation of what everyone
+  expected is a 3).
+- **Now inspectable.** Dropped stories get their own status (`low_impact`) rather
+  than being mixed in with sport and opinion, and `tools/stats.py --dropped`
+  prints them with the market and the reason. Same principle as the editor's
+  audit log: a filter you cannot inspect is a filter you cannot fix.
 - **Model:** `deepseek/deepseek-v3.2`, temperature 0.0. Chosen for judgement,
   not price — this node only costs ~$1.50/month, and it decides what matters.
 - **Why:** the main cost control. Rejecting a story here saves the writer's
@@ -282,6 +311,7 @@ different weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
 ```bash
 python3 main.py stats               # how is it doing?
 python3 tools/stats.py --declines   # what did the editor reject, and was it right?
+python3 tools/stats.py --dropped    # what real news did the gate refuse to run?
 python3 tools/check_sources.py      # are all the feeds still alive?
 python3 tools/check_tweets.py       # watch the X stream live
 tail -f logs/news-channel.log       # what is it doing right now?
@@ -330,6 +360,7 @@ restarting the service.
 | Number | Where | What it means if it looks wrong |
 |---|---|---|
 | **Rejection rate** | `main.py stats` | Over ~33%, read the reasons — the editor is more likely too strict than the news that bad |
+| **Share with market `none`** | `main.py stats` | Over ~90% means your sources are general news, not market news. Under ~40% means the model is inventing reasons to care — read `--dropped` |
 | **Duplicates by check** | `main.py stats` | If check 4 never fires, your sources don't overlap or the threshold is too high |
 | **Expired vs published** | `main.py stats` | More expiring than publishing means you collect more than you allow yourself to post |
 | **Posts per day** | the channel | Does the pace feel right as a reader? |
@@ -348,6 +379,8 @@ restarting the service.
 | Duplicates getting through | Lower `COSINE_THRESHOLD` (0.86 → 0.82) in `.env` |
 | Real stories being merged | Raise `COSINE_THRESHOLD` (0.86 → 0.90). Check what it merged with `stats.py` |
 | Posts sound wrong | Edit `PROMPT` in `nodes/writer.py`, rehearse with `dry_run.py` |
+| Posts are real news but nobody would trade on them | `nodes/sorter.py`, not the editor. Check `stats.py --dropped --market none` to see what it *is* catching, then tighten the market definitions |
+| The channel has gone quiet | `stats.py --dropped` — if good stories are in that list, the gate is too strict. Loosen the continuing-story test before touching `MIN_IMPORTANCE` |
 
 ---
 

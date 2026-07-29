@@ -69,7 +69,7 @@ async def process_item(item) -> str:
     """Run one item through the whole pipeline.
 
     Returns a word describing what happened, for the log and the counters:
-        published | duplicate | irrelevant | declined | retry | failed
+        published | duplicate | irrelevant | low_impact | declined | retry | failed
     """
     item_id = item["id"]
 
@@ -91,7 +91,8 @@ async def process_item(item) -> str:
 
     # --- Step 2: is this worth covering? ---
     verdict = await sorter.execute(item)
-    db.set_item_sorting(item_id, verdict["topic"], verdict["importance"])
+    db.set_item_sorting(item_id, verdict["topic"], verdict["importance"],
+                        verdict["market"])
 
     # The scorer could not be reached. We do not know whether this matters, so
     # we neither publish it nor throw it away — it goes back in the queue.
@@ -109,11 +110,18 @@ async def process_item(item) -> str:
 
     # Not important enough. This is the main control on how trivial the channel
     # feels — see MIN_IMPORTANCE in config.py.
+    #
+    # Recorded under its own status rather than lumped in with 'irrelevant',
+    # because these two piles need reading for opposite reasons: 'irrelevant' is
+    # sport and opinion columns and you never want to see it again, while this
+    # one is real news the channel chose not to run. If the gate is
+    # mis-calibrated — in either direction — the evidence is here.
+    # See: python tools/stats.py --dropped
     if verdict["importance"] < config.MIN_IMPORTANCE:
         db.set_item_status(
-            item_id, "irrelevant",
-            f"impact {verdict['importance']}/5, below the {config.MIN_IMPORTANCE} "
-            f"threshold: {verdict['reason']}",
+            item_id, "low_impact",
+            f"impact {verdict['importance']}/5 (market: {verdict['market']}), below "
+            f"the {config.MIN_IMPORTANCE} threshold: {verdict['reason']}",
         )
         db.bump_counter("below_importance")
         return "low_impact"

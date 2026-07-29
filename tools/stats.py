@@ -5,6 +5,14 @@ PURPOSE: Show what the channel has been doing, and — most importantly — what
 USAGE:   python main.py stats            (last 3 days)
          python main.py stats --days 7
          python tools/stats.py --declines (just the editor's rejections, in full)
+         python tools/stats.py --dropped  (real news the importance gate binned)
+
+THE TWO FILTERS, AND WHY BOTH ARE PRINTED HERE
+    The editor rejects finished posts, and it has been inspectable since day one.
+    The importance gate throws away far more, earlier, and used to be invisible:
+    all you got was a number in a counter. Since it is the gate that decides
+    whether the channel is worth subscribing to, --dropped now shows its work the
+    same way --declines shows the editor's.
 
 THE FOUR NUMBERS TO WATCH
     1. REJECTION RATE. If the editor is turning down more than about a third of
@@ -35,6 +43,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config  # noqa: E402
+from nodes.sorter import NO_MARKET_CAP  # noqa: E402
 from utils import db  # noqa: E402
 
 LINE = "─" * 74
@@ -128,6 +137,34 @@ def report(days: int = 3) -> None:
     else:
         print("   The editor hasn't judged anything yet.")
 
+    # --- The importance gate: the other filter, and the bigger one ---
+    _section("The importance gate")
+    rows = db.market_breakdown(days)
+    if rows:
+        print("   Every scored item, by the market the sorter said must reprice.")
+        print(f"   'none' caps an item at {NO_MARKET_CAP}/5, so it never reaches "
+              f"the channel.\n")
+        print(f"   {'market':<16}{'seen':>7}{'published':>12}")
+        for row in rows:
+            print(f"   {row['market']:<16}{row['seen']:>7}{row['published'] or 0:>12}")
+
+        none_seen = next((r["seen"] for r in rows if r["market"] == "none"), 0)
+        total_seen = sum(r["seen"] for r in rows)
+        if total_seen:
+            share = none_seen / total_seen
+            print(f"\n   {share:.0%} of scored items had no market to reprice.")
+            if share > 0.9:
+                print("   ⚠️  That is very high. Either your sources are mostly general")
+                print("       news rather than market news, or the market definitions in")
+                print("       nodes/sorter.py are too narrow. Check with --dropped before")
+                print("       loosening anything.")
+            elif share < 0.4:
+                print("   ⚠️  That is low, and the usual cause is a model reaching for a")
+                print("       market to justify a story. Read --dropped and the published")
+                print("       posts together: are the 4s really things you would trade on?")
+    else:
+        print("   Nothing scored yet.")
+
     # --- Duplicates, broken down by which check caught them ---
     _section("Duplicates caught")
     rows = db.query(
@@ -155,7 +192,8 @@ def report(days: int = 3) -> None:
     _section("Intake versus output")
     today = db.get_counters()
     if today:
-        for kind in ("ingested", "irrelevant", "written", "published", "expired",
+        for kind in ("ingested", "irrelevant", "below_importance", "written",
+                     "published", "expired",
                      "deduped_headline", "deduped_fuzzy", "deduped_meaning"):
             if kind in today:
                 print(f"   {kind:<20} {today[kind]:>6}")
@@ -182,7 +220,9 @@ def report(days: int = 3) -> None:
 
     print(f"\n{LINE}")
     print("   To see exactly what the editor rejected, and the full text of each:")
-    print("      python tools/stats.py --declines\n")
+    print("      python tools/stats.py --declines")
+    print("   To see the real news the importance gate decided not to run:")
+    print("      python tools/stats.py --dropped\n")
 
 
 def show_declines(count: int = 10) -> None:
@@ -216,16 +256,66 @@ def show_declines(count: int = 10) -> None:
     print("   Loosen PROMPT in nodes/editor.py and rehearse with tools/dry_run.py.\n")
 
 
+def show_dropped(count: int = 25, market: str = "") -> None:
+    """Print the real news the importance gate refused to publish.
+
+    Read this the way you read --declines, but with the opposite worry. The
+    danger with the editor is that it rejects too much. The danger here runs
+    both ways:
+
+      * Too strict, and the channel goes quiet and misses things it should have
+        run. You will see stories here you would obviously have posted.
+      * Too loose, and it publishes filler. You will see almost nothing here,
+        while the channel fills up with items nobody would trade on.
+
+    The 'market' column is the one to look at. An item dropped with market
+    'none' is the model saying, in plain words, that nothing has to be repriced.
+    If you disagree with that on a story, THAT is the judgement to go and fix in
+    nodes/sorter.py — not the number.
+    """
+    rows = db.recent_low_impact(count, market=market)
+    if not rows:
+        where = f" with market '{market}'" if market else ""
+        print(f"\n   Nothing has been dropped for low impact{where} yet.\n")
+        return
+
+    heading = f"  THE LAST {len(rows)} STORIES THE GATE DID NOT RUN"
+    if market:
+        heading += f" — market '{market}'"
+    print(f"\n{'=' * 74}")
+    print(heading)
+    print(f"  Would you have posted these? That is the whole question.")
+    print(f"{'=' * 74}")
+
+    for row in rows:
+        print(f"\n   {row['updated_at']}   {row['source_name']}")
+        print(f"   {(row['title'] or '')[:100]}")
+        print(f"   topic {row['topic'] or '?':<12} market {row['market'] or '?':<14} "
+              f"impact {row['importance']}/5")
+        print(f"   → {row['status_reason']}")
+
+    print(f"\n{LINE}")
+    print("   If good stories are in this list, the gate is too strict: loosen the")
+    print("   market definitions or the continuing-story test in nodes/sorter.py.")
+    print("   If this list looks correctly boring, the gate is doing its job.\n")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Show how the channel is doing.")
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--declines", action="store_true",
-                        help="show recent rejections in full")
+                        help="show recent editor rejections in full")
+    parser.add_argument("--dropped", action="store_true",
+                        help="show real news the importance gate did not run")
+    parser.add_argument("--market", default="",
+                        help="with --dropped, show only one market (e.g. none)")
     parser.add_argument("--count", type=int, default=10)
     args = parser.parse_args()
 
     db.init_db()
     if args.declines:
         show_declines(args.count)
+    elif args.dropped:
+        show_dropped(max(args.count, 25), market=args.market)
     else:
         report(days=args.days)

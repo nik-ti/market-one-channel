@@ -83,11 +83,17 @@ CREATE TABLE IF NOT EXISTS items (
     -- Pipeline progress
     topic_hint    TEXT    DEFAULT '',            -- what the source claims it is about
     topic         TEXT    DEFAULT '',            -- what the AI decided it is about
+    market        TEXT    DEFAULT '',            -- which market has to reprice, or 'none'
     importance    INTEGER NOT NULL DEFAULT 0,    -- 1-5; the queue posts the best first
     status        TEXT    NOT NULL DEFAULT 'queued',
         -- queued          waiting to be processed
         -- duplicate       we already covered this story
         -- irrelevant      not about our topics, or not really news
+        -- low_impact      real news, but nothing has to be repriced on it.
+        --                 Kept separate from 'irrelevant' on purpose: this is
+        --                 the pile you review when the channel feels either too
+        --                 quiet or too trivial, and mixing it in with sport and
+        --                 opinion columns would make it unreadable.
         -- written         a post exists, waiting on the editor or on room to send
         -- published       it went out
         -- expired         it sat in the queue too long and went stale
