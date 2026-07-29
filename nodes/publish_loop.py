@@ -144,7 +144,13 @@ async def process_item(item) -> str:
 
         # If X truncated the tweet so badly that nothing complete survives,
         # fall back to the AI writer rather than dropping a real story.
-        if len(post_html) < 40:
+        #
+        # This used to read `len(post_html) < 40`, which measured the HTML —
+        # tags included — and so sent perfectly good one-line tweets to the
+        # writer for being short. Whether anything usable survived is a question
+        # passthrough() is in a position to answer and this loop is not, so it
+        # answers it, and an empty string is the whole signal.
+        if not post_html:
             log.info("Tweet %s left too little after trimming — using the writer", item_id)
             post_html = await writer.execute(item, has_image=has_image)
             used_ai = True

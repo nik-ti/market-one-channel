@@ -230,6 +230,30 @@ different weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
   (`"...that a statute https://t.co/..."`). `passthrough()` trims back to the
   last complete sentence; if too little survives, it falls back to the AI writer
   rather than dropping a real story.
+- **That trimming only runs on tweets long enough to have been truncated**
+  (`X_TRUNCATION_CHARS`, 250), and this matters more than it looks. Trimming
+  assumes text not ending in punctuation was cut off. For a long tweet that is a
+  good assumption; for a short one it is simply wrong, because these accounts
+  write **headlines**, and a headline has no full stop:
+
+  > 🚨 JUST IN: Bitcoin falls below $60,000
+
+  That is a whole tweet. Ungated, the trimmer walked back looking for a sentence
+  ending, found the colon in "JUST IN:" — a colon used to count — and returned
+  `"🚨 JUST IN:"`, which the prefix stripper then removed entirely. **Every
+  headline-shaped tweet was destroyed this way, which is most of what
+  WatcherGuru and TreeNewsFeed publish.**
+
+  Nothing looked broken, because the caller fell back to the AI writer and the
+  posts still appeared. They were just being *rewritten* rather than passed
+  through — quietly turning off the one guarantee this node exists to provide,
+  on the majority of tweets, for months. A colon is no longer a sentence ending,
+  and the trim is gated on length.
+- **"Is anything usable left?" is `passthrough()`'s question to answer**, and it
+  returns an empty string to say no. The publish loop used to decide this itself
+  with `len(post_html) < 40`, which counted the HTML — the `<b></b>` around a
+  headline is 7 characters of tag that say nothing to a reader — and so rejected
+  valid one-line tweets for being short.
 - **Model:** `deepseek/deepseek-v3.2`, temperature 0.2. Its output is $0.40/M
   against Gemini Flash's $2.50/M, and the writer is output-heavy.
 - **Prompt:** at the top of the file. Most of its odd-looking sections are scar

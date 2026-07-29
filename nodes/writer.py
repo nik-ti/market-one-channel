@@ -314,7 +314,28 @@ _ALERT_PREFIX = re.compile(
 
 
 # A finished sentence ends with one of these.
-_SENTENCE_END = (".", "!", "?", '"', "”", ")", ":")
+#
+# A COLON IS NOT ON THIS LIST, and used not to be missing from it. See the
+# length guard in _trim_to_last_sentence for what that cost.
+_SENTENCE_END = (".", "!", "?", '"', "”", ")")
+
+# X hands the API roughly 280 characters of a long post and a link to the rest.
+# A tweet shorter than this was never truncated, so there is nothing to trim
+# back to — whatever punctuation it does or does not end with.
+X_TRUNCATION_CHARS = 250
+
+# The shortest visible text we will publish as a post on its own. Below this
+# there is not enough left to be news, and the caller falls back to the writer.
+# "Fed holds rates steady" is 22 characters, so this is genuinely a floor and
+# not a length preference.
+MIN_PASSTHROUGH_CHARS = 20
+
+_TAGS = re.compile(r"<[^>]+>")
+
+
+def _visible_length(html: str) -> int:
+    """How long the post is to a READER, ignoring the HTML tags around it."""
+    return len(_TAGS.sub("", html or "").strip())
 
 
 def _trim_to_last_sentence(text: str) -> str:
@@ -330,6 +351,26 @@ def _trim_to_last_sentence(text: str) -> str:
     Publishing that verbatim would put a half-sentence on the channel. Since we
     cannot fetch the rest, we drop the incomplete tail and keep what is whole.
     Returns "" if nothing complete survives.
+
+    ONLY CALL THIS ON A TWEET LONG ENOUGH TO HAVE BEEN TRUNCATED.
+        This function assumes that text not ending in punctuation was cut off.
+        For a long tweet that is a good assumption. For a short one it is
+        completely wrong: these accounts write HEADLINES, and a headline has no
+        full stop.
+
+            "🚨 JUST IN: Bitcoin falls below $60,000"
+
+        That is a whole tweet. Nothing was truncated. But it does not end in
+        punctuation, so this function walked backwards looking for a sentence
+        ending — and because a colon used to count as one, it found the colon in
+        "JUST IN:" and returned "🚨 JUST IN:". The prefix stripper then removed
+        that too, leaving nothing at all.
+
+        Every headline-shaped tweet was destroyed this way, which is most of what
+        WatcherGuru and TreeNewsFeed publish. It was invisible because the caller
+        quietly fell back to the AI writer, so the posts still appeared — they
+        were just being rewritten by a model rather than passed through, which is
+        the exact risk passthrough() exists to avoid.
     """
     text = text.strip()
     if not text or text.endswith(_SENTENCE_END):
@@ -361,16 +402,22 @@ def passthrough(item) -> str:
     republished tweet looks like everything else on the channel instead of
     announcing which account it came from.
 
-    Returns an empty string if nothing usable is left.
+    Returns an empty string if nothing usable is left, which tells the caller to
+    fall back to the AI writer rather than losing the story.
     """
-    text = _URL.sub("", item["body"] or "").strip()
+    raw = item["body"] or ""
+    text = _URL.sub("", raw).strip()
     if not text:
         return ""
 
-    # X cuts long posts off mid-sentence — see _trim_to_last_sentence.
-    text = _trim_to_last_sentence(text)
-    if not text:
-        return ""
+    # X cuts long posts off mid-sentence — see _trim_to_last_sentence. Only a
+    # tweet long enough to have hit that limit can have been cut, so the trim is
+    # gated on the length of the ORIGINAL text, before the links came out. A
+    # headline tweet with no full stop is complete, not truncated.
+    if len(raw) >= X_TRUNCATION_CHARS:
+        text = _trim_to_last_sentence(text)
+        if not text:
+            return ""
 
     text = strip_emojis(text)
 
@@ -393,6 +440,14 @@ def passthrough(item) -> str:
     post = f"<b>{headline}</b>"
     if rest:
         post += "\n\n" + "\n".join(rest)
+
+    # Is there enough left to be a post? Measured on what a reader sees, not on
+    # the HTML — the <b></b> around a headline is 7 characters of tag that say
+    # nothing, and counting them once made a valid one-line tweet look too short
+    # to publish.
+    if _visible_length(post) < MIN_PASSTHROUGH_CHARS:
+        return ""
+
     return post
 
 
