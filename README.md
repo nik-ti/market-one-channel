@@ -46,7 +46,7 @@ Feeds are checked every 10 minutes; tweets arrive continuously.
     │   4.  editor.py     AI · approve or reject, naming a rule          │
     │            │        minimax-m2.7 · different lab from the writer   │
     │            ▼                                                       │
-    │   5.  publisher.py  add emoji + source link + hashtag, then send   │
+    │   5.  publisher.py  add the one emoji + source link, then send    │
     │            │        max 2 per round, 12 per hour, 60 per day       │
     │            ▼                                                       │
     │      YOUR TELEGRAM CHANNEL                                         │
@@ -223,7 +223,8 @@ different weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
   nothing gained — the rewrite step was where the model invented casualty
   figures during testing. `passthrough()` publishes the tweet's own words, so
   the post cannot say anything the source didn't, because it *is* the source.
-  It strips the t.co links, drops a redundant "JUST IN:", and bolds the first line.
+  It strips the t.co links, drops a redundant "JUST IN:", removes the sirens and
+  rockets, and bolds the first line.
 - **Watch out — X truncates its own long posts** at ~280 characters and appends
   a link to the rest, so stored tweets routinely end mid-sentence
   (`"...that a statute https://t.co/..."`). `passthrough()` trims back to the
@@ -247,7 +248,7 @@ different weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
   visual signature. A short *RSS summary* gets the shorter length but keeps its
   normal topic emoji, because it is still a proper article and badging it as a
   flash alert would tell the reader something untrue about where it came from.
-  Any emoji the model adds to a ⚡ post is stripped in code, not just discouraged
+  Emoji the model adds are stripped in code on every post, not just discouraged
   in the prompt.
 - **Guards:** a post that stops mid-sentence is discarded and retried, never sent.
 
@@ -270,12 +271,27 @@ different weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
   (Note this is the *opposite* of dedup, on purpose.)
 
 ### `publisher.py`
-- **What:** adds the emoji, source link and hashtag, then sends.
-- **Topic marks, added by code and never by the AI:**
-  `crypto → 🪙 #crypto`, `geopolitics → 🌍 #geopolitics`, and `⚡` in place of the
-  emoji for short X posts. The hashtags are tappable inside Telegram, which is
-  what makes one channel covering two subjects workable — a crypto-only reader
-  taps `#crypto` and gets their own feed.
+- **What:** adds the one emoji and the source link, then sends.
+- **One emoji per post, added by code and never by the AI:** `crypto → 🪙`,
+  `geopolitics → 🌍`, and `⚡` in place of the topic emoji for short X posts.
+  That single mark is the channel's whole visual signature.
+  - The writer is told to use no emoji at all, and `strip_emojis()` removes any
+    it produced anyway — for **every** post, not just the brief ones. Asking
+    nicely in a prompt is not enough on its own.
+  - It used to be allowed "1-3 that complement the content", which sounds
+    reasonable and was not. Choosing an emoji is a judgement about tone, and the
+    model made it badly on exactly the stories where tone matters: it put a 🔥
+    on a drone strike.
+  - Republished tweets are stripped too. These accounts write in sirens and
+    rockets; the facts are reproduced exactly, only the decoration goes, so a
+    tweet looks like everything else on the channel rather than announcing which
+    account it came from.
+- **No hashtags.** Dropped deliberately. Two tags covering the whole channel
+  sorted posts the way this desk thinks rather than the way a reader does, and
+  every post carried a line of tag that said almost nothing a reader couldn't
+  already see from the emoji. `docs/IMPROVING-THE-CHANNEL.md` proposes bringing
+  them back per **market** (`#energy`, `#rates`) rather than per topic, which is
+  the version that would actually earn its line.
 - **Pacing:** max 2 per round, 90 seconds minimum between posts, 12/hour, 60/day.
   Telegram would allow roughly 20 a *minute*; the limit here is about readers,
   not the API.

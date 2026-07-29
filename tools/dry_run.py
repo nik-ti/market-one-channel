@@ -59,16 +59,15 @@ def _render(post_html: str, topic: str, url: str, brief: bool = False) -> str:
     Telegram renders <b>bold</b>; a terminal doesn't, so we swap the tags for
     the terminal's own bold codes to give a fair impression of the result.
     """
-    emoji, hashtag = config.TOPIC_STYLE.get(topic, ("📰", "#news"))
-    if brief:
-        emoji = config.BRIEF_EMOJI
+    emoji = config.BRIEF_EMOJI if brief else config.TOPIC_EMOJI.get(
+        topic, config.FALLBACK_EMOJI)
 
     text = (post_html
             .replace("<b>", "\033[1m").replace("</b>", "\033[0m")
             .replace("<i>", "\033[3m").replace("</i>", "\033[0m")
             .replace("<code>", "`").replace("</code>", "`"))
 
-    return f"{emoji} {text}\n\n🔗 Source: {url}\n{hashtag}"
+    return f"{emoji} {text}\n\n🔗 Source: {url}"
 
 
 async def _process(item, index: int, total: int, args) -> str:

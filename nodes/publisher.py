@@ -6,17 +6,22 @@ OUTPUT:  True if it reached the channel.
 DEPENDENCIES: utils/telegram_client.py, utils/telegram_html.py, utils/db.py
 
 WHAT IT ADDS TO A POST
-    The AI writes the body. This node adds the three fixed pieces:
-      * the topic emoji at the front
+    The AI writes the body. This node adds the two fixed pieces:
+      * the single topic emoji at the front
       * the source link
-      * the topic hashtag on its own last line
     Those are deliberately NOT left to the AI. They are the same every time, and
     there is no reason to let a system that guesses handle something certain.
 
-    The hashtag matters more than it looks: Telegram makes hashtags tappable
-    inside a channel, so a reader who only cares about crypto can tap #crypto
-    and get their own filtered feed. That is what makes one channel covering
-    three subjects workable.
+ONE EMOJI, AND THIS NODE OWNS IT
+    A post carries exactly one emoji: the mark this node puts at the front. The
+    writer is told to use none, and `writer.strip_emojis()` removes any it used
+    anyway before the text ever reaches here — asking nicely is not enough on
+    its own.
+
+    That makes the mark mean something. When the model was free to add "1-3
+    emoji that complement the content", it put a 🔥 on a story about a drone
+    strike, which reads as celebrating it. One emoji, chosen in code from a
+    fixed list, cannot do that.
 
 THE PACING RULES
     Telegram allows roughly 20 messages a minute to a channel. We stay an order
@@ -83,14 +88,20 @@ def _strip_foreign_links(html: str, allowed_url: str) -> str:
 # --- Assemble the finished message ---
 def compose(post_html: str, topic: str, url: str, source_name: str,
             brief: bool = False) -> str:
-    """Add the emoji, the source link and the hashtag around the written post.
+    """Put the one emoji at the front and the source link at the end.
 
     A BRIEF post — one written from a source only a couple of sentences long,
     typically an X post — leads with ⚡ instead of the topic emoji, so readers
-    can tell a quick alert from a full write-up at a glance. The topic is still
-    visible from the hashtag at the end.
+    can tell a quick alert from a full write-up at a glance.
     """
-    emoji, hashtag = config.TOPIC_STYLE.get(topic, ("📰", "#news"))
+    emoji = config.TOPIC_EMOJI.get(topic)
+    if emoji is None:
+        # Should not happen: the sorter can only return a known topic. If it
+        # does, say so rather than quietly publishing an off-brand mark.
+        log.warning("Unknown topic %r on a finished post — using the fallback "
+                    "emoji. Check what the sorter returned.", topic)
+        emoji = config.FALLBACK_EMOJI
+
     lead = config.BRIEF_EMOJI if brief else emoji
 
     body = _strip_foreign_links(post_html.strip(), url)
@@ -102,11 +113,11 @@ def compose(post_html: str, topic: str, url: str, source_name: str,
     parts = [body]
 
     # Always credit the source. We are rewriting other people's reporting, so
-    # attribution is both the decent and the sensible thing to do.
+    # attribution is both the decent and the sensible thing to do. The 🔗 is
+    # part of the link's label rather than a second emoji on the post — it
+    # marks where the post ends and the attribution begins.
     if url:
         parts.append(f'\n<a href="{url}">🔗 {source_name}</a>')
-
-    parts.append(f"\n{hashtag}")
 
     return "\n".join(parts)
 

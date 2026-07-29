@@ -90,21 +90,23 @@ LENGTH_RULE_BRIEF = (
     "single invented detail is a failure that gets the whole post thrown away."
 )
 
-# Two emoji rules. Brief posts get NONE, because the system puts a ⚡ at the
-# front of them and that single mark is the whole visual signature of a quick
-# alert. Anything else added inside would dilute it.
-EMOJI_RULE_NORMAL = (
-    "1-3 in the whole post, no more. They must COMPLEMENT the content — pick "
-    "one that reflects what the story is actually about (⚖️ a ruling, 🛢 oil, "
-    "🏦 a bank or central bank, 📉 a fall, 📈 a rise, ⛔ a ban, 🤝 a deal, "
-    "🔒 security). Never a decorative emoji that says nothing, and never "
-    "scattered through sentences. One in the headline is usually enough."
-)
-EMOJI_RULE_BRIEF = (
+# The writer chooses no emoji at all, ever.
+#
+# It used to be allowed "1-3 that complement the content", which sounds
+# reasonable and was not: choosing an emoji is a judgement about tone, and the
+# model made that judgement badly on exactly the stories where tone matters. It
+# put a 🔥 on a drone strike. A post is not the place to find out that a model
+# reads "attack" as exciting.
+#
+# So the system puts exactly one mark at the front — the topic emoji, or ⚡ for
+# a flash — and that single consistent mark is the channel's whole visual
+# signature. Anything the model adds inside dilutes it and risks the tone.
+EMOJI_RULE = (
     "NONE. Do not use a single emoji anywhere in this post — not in the "
     "headline, not in the body, not at the end. The system adds one marker "
-    "itself. Any emoji you add will be stripped out, so adding one only makes "
-    "the post read oddly."
+    "itself, and that one mark is the whole visual style of this channel. Any "
+    "emoji you add will be stripped out automatically, so adding one only "
+    "makes the post read oddly where it was removed."
 )
 
 PROMPT = """You write short English-language news posts for a Telegram channel covering cryptocurrency and geopolitics.
@@ -180,6 +182,8 @@ Simple does NOT mean vague. Keep every number, name, date and condition from the
 
 **Emojis:** {emoji_rule}
 
+**Hashtags:** none, anywhere. Not at the end, not inline, not in the headline. This channel does not use them.
+
 **Length:** {length_rule}
 
 **HTML:** you may use ONLY these tags: <b>, <i>, <code>, <a href="">.
@@ -190,7 +194,7 @@ No hashtags. No source link. No channel name. No sign-off. The system adds all o
 
 ## Example of a good post
 
-<b>SEC approves first spot Ethereum ETFs 🪙</b>
+<b>SEC approves first spot Ethereum ETFs</b>
 
 US regulators cleared eight spot ether exchange-traded funds for trading, three months after approving their bitcoin equivalents. An ETF is a fund that tracks an asset's price and trades like a normal share.
 
@@ -336,7 +340,7 @@ def _trim_to_last_sentence(text: str) -> str:
     return text[: cut + 1].strip() if cut > 0 else ""
 
 
-def passthrough(item, strip_emoji: bool = True) -> str:
+def passthrough(item) -> str:
     """Turn a tweet into a post WITHOUT involving an AI at all.
 
     Tweets from these accounts are already short, factual and written for exactly
@@ -349,7 +353,13 @@ def passthrough(item, strip_emoji: bool = True) -> str:
       * removes the t.co links (the system adds the real one)
       * drops a redundant "JUST IN:" / "BREAKING:" prefix — the ⚡ says that
       * bolds the first line, so it matches the channel's house format
-      * optionally removes emoji, for the ⚡ posts that carry only that one mark
+      * removes emoji, so the post carries only the one mark the publisher adds
+
+    That last one is worth being clear about, because these accounts write in
+    sirens and rockets and we are stripping their punctuation, not their words.
+    The tweet's FACTS are reproduced exactly; only the decoration goes, so a
+    republished tweet looks like everything else on the channel instead of
+    announcing which account it came from.
 
     Returns an empty string if nothing usable is left.
     """
@@ -362,8 +372,7 @@ def passthrough(item, strip_emoji: bool = True) -> str:
     if not text:
         return ""
 
-    if strip_emoji:
-        text = strip_emojis(text)
+    text = strip_emojis(text)
 
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
@@ -390,8 +399,9 @@ def passthrough(item, strip_emoji: bool = True) -> str:
 def is_brief(item) -> bool:
     """True if this is a short X post — the only thing that gets the ⚡ badge.
 
-    Decides HOW IT LOOKS: the ⚡ marker instead of the topic emoji, and no other
-    emoji anywhere. Requires BOTH a thin source AND that it came from X.
+    Decides WHICH mark the post carries: ⚡ instead of the topic emoji. Every
+    post carries exactly one either way. Requires BOTH a thin source AND that it
+    came from X.
 
     A short RSS summary is still a proper article, so badging it as a flash alert
     would tell the reader something untrue about where it came from.
@@ -424,7 +434,6 @@ async def execute(item, has_image: bool = False) -> str:
     # path and the model padded it with an invented sentence about "organized
     # crime rings" that appeared nowhere in the source. A thin source now gets a
     # short post whether it came from X or a feed; only X posts get the ⚡.
-    brief = is_brief(item)
     thin = has_thin_source(item)
 
     if thin:
@@ -434,9 +443,7 @@ async def execute(item, has_image: bool = False) -> str:
     else:
         length_rule = LENGTH_RULE_TEXT
 
-    emoji_rule = EMOJI_RULE_BRIEF if brief else EMOJI_RULE_NORMAL
-
-    system_prompt = PROMPT.format(length_rule=length_rule, emoji_rule=emoji_rule)
+    system_prompt = PROMPT.format(length_rule=length_rule, emoji_rule=EMOJI_RULE)
 
     try:
         raw = await openrouter.chat_text(
@@ -453,14 +460,13 @@ async def execute(item, has_image: bool = False) -> str:
         log.warning("Writer returned nothing for item %s", item["id"])
         return ""
 
-    # Brief posts carry exactly one mark — the ⚡ the publisher adds — so any
+    # Every post carries exactly one mark — the one the publisher adds — so any
     # emoji the model slipped in gets removed here. Asking nicely in the prompt
     # is not enough on its own; this is the part that actually guarantees it.
-    if brief:
-        before = post
-        post = strip_emojis(post)
-        if post != before:
-            log.info("Removed emoji(s) from a brief post (item %s)", item["id"])
+    before = post
+    post = strip_emojis(post)
+    if post != before:
+        log.info("Removed emoji(s) the writer added to item %s", item["id"])
 
     if _looks_incomplete(post):
         log.warning("Writer produced a post that stops mid-sentence for item %s — "

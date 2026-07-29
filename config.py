@@ -92,20 +92,31 @@ X_ACCOUNTS = {
 # =============================================================================
 # POST APPEARANCE
 # =============================================================================
-# Emoji leads the post, hashtag ends it. Added by code, never by the AI.
-# Telegram makes hashtags tappable, so readers can filter by topic.
+# ONE emoji per post, and it is the first character. Nothing else.
+#
+# It is added by code and never by the AI — the writer is told to use no emoji
+# at all, and any it produces anyway are stripped before sending. A single
+# consistent mark is the channel's whole visual signature, and a model choosing
+# decorative emoji per post destroys that: it once put a 🔥 on a drone strike.
+#
+# There are no hashtags. They were dropped on purpose: two tags covering the
+# whole channel sorted posts the way this desk thinks rather than the way a
+# reader does, and every post carried a line of tag that said almost nothing.
 
-TOPIC_STYLE = {
-    "crypto":      ("🪙", "#crypto"),
-    "geopolitics": ("🌍", "#geopolitics"),
+TOPIC_EMOJI = {
+    "crypto":      "🪙",
+    "geopolitics": "🌍",
 }
 
-VALID_TOPICS = tuple(TOPIC_STYLE.keys())
+VALID_TOPICS = tuple(TOPIC_EMOJI.keys())
+
+# Shown when a topic somehow isn't one of the above. It should never appear —
+# if you see it in the channel, the sorter returned something unexpected.
+FALLBACK_EMOJI = "📰"
 
 # Short sources — typically an X post of a few sentences — become BRIEF posts:
 # they lead with ⚡ instead of the topic emoji and are kept much shorter, because
-# there is nothing to pad a longer post with except invention. The topic is
-# still visible from the hashtag at the end.
+# there is nothing to pad a longer post with except invention.
 BRIEF_SOURCE_CHARS = _get_int("BRIEF_SOURCE_CHARS", 400)
 BRIEF_EMOJI = "⚡"
 

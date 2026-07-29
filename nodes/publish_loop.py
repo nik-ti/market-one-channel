@@ -139,7 +139,7 @@ async def process_item(item) -> str:
     # the post cannot say anything the source did not, because it IS the source.
     used_ai = True
     if item["origin"] == "x":
-        post_html = writer.passthrough(item, strip_emoji=writer.is_brief(item))
+        post_html = writer.passthrough(item)
         used_ai = False
 
         # If X truncated the tweet so badly that nothing complete survives,
