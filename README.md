@@ -394,6 +394,20 @@ nodes/             one file per step of the pipeline (the diagram above)
 utils/             shared helpers: database, Telegram, OpenRouter, text cleaning
 tools/             things you run by hand — none of them post anything
 deploy/            the systemd service and log rotation
+docs/              analysis and proposals, not code
 data/news.db       the database
 logs/              the log
 ```
+
+---
+
+## Where this is going
+
+`docs/IMPROVING-THE-CHANNEL.md` is an analysis of what the channel offers a
+reader today and what would have to change for someone to want to subscribe. It
+covers the sourcing measurements behind the feed list, and a ranked set of
+proposals — showing the sorter's market judgement in the post itself, hashtagging
+by market rather than topic, threading developing stories onto the message that
+broke them, and logging Telegram reactions so calibration stops being guesswork.
+
+None of it is implemented. Read it before making editorial changes.
