@@ -1,0 +1,41 @@
+# --- What this project needs installed ---
+#
+# GOOD NEWS: every one of these is ALREADY installed on this machine, because
+# the trading bots and news-saas use the same stack. So on this VPS you should
+# not need to install anything at all.
+#
+# To install anyway (or on a fresh machine):
+#     python3 -m pip install --user --break-system-packages -r requirements.txt
+#
+# The "--break-system-packages" flag looks alarming but is just Ubuntu asking you
+# to confirm you meant to install into the system Python rather than a virtual
+# environment. Every other project on this box does the same, so we match.
+
+
+# Talking to Telegram. The workspace rule is python-telegram-bot, no exceptions —
+# so even though we only send messages, we use it rather than raw HTTP calls.
+python-telegram-bot>=22.0
+
+# Making HTTP requests, the modern async way. Used for fetching feeds and for
+# talking to OpenRouter.
+httpx>=0.28
+
+# Reading the shared tweet stream. The relay service writes tweets into Redis;
+# we subscribe. Only the async part of this library is used.
+redis>=8.0
+
+# Pulling the plain text out of the HTML that feeds put inside their summaries.
+# lxml is the fast parser beautifulsoup uses under the hood.
+beautifulsoup4>=4.12
+lxml>=5.0
+
+# Fast fuzzy text matching. Powers duplicate check number 3 — spotting that
+# "Fed holds rates steady" and "Fed leaves rates unchanged" are one story.
+rapidfuzz>=3.0
+
+# Maths on lists of numbers. Powers duplicate check number 4 — comparing the
+# MEANING of two stories rather than their wording.
+numpy>=1.26
+
+# Reads the .env file so secrets stay out of the code.
+python-dotenv>=1.0

@@ -1,0 +1,28 @@
+# --- Stop the log file growing forever ---
+#
+# INSTALL (done for you by install-service.sh):
+#   sudo cp deploy/news-channel.logrotate /etc/logrotate.d/news-channel
+#
+# WHY THIS MATTERS
+#   systemd appends to the log file and never truncates it. Left alone, a log
+#   grows without limit — there is a 180 MB example on this machine right now,
+#   from a crawler nobody rotated.
+#
+# THE IMPORTANT LINE IS "copytruncate"
+#   Normally logrotate renames the old file and expects the program to open a
+#   new one. systemd holds the file open and would carry on writing into the
+#   renamed file, so the new one would stay empty forever. copytruncate instead
+#   copies the contents away and empties the original in place, which works with
+#   a file that is being held open.
+
+/home/nikita/systems/news-channel/logs/*.log {
+    weekly
+    maxsize 50M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su nikita nikita
+}

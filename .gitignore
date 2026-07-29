@@ -1,0 +1,17 @@
+# Secrets — never commit these
+.env
+
+# The database and its write-ahead log files
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Python leftovers
+__pycache__/
+*.pyc

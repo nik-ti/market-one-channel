@@ -1,0 +1,51 @@
+# --- systemd service for the news channel ---
+#
+# WHAT SYSTEMD IS
+#   The part of Linux that keeps programs running. It starts this one when the
+#   server boots, restarts it if it crashes, and keeps its log.
+#
+# INSTALL
+#   sudo bash deploy/install-service.sh
+#
+# EVERYDAY COMMANDS
+#   sudo systemctl status news-channel      is it running?
+#   sudo systemctl restart news-channel     restart it (after editing config.py)
+#   sudo systemctl stop news-channel        stop posting entirely
+#   tail -f logs/news-channel.log           watch what it is doing
+
+[Unit]
+Description=News Channel — crypto/geopolitics/ecommerce Telegram channel
+After=network-online.target redis-server.service
+Wants=network-online.target
+# Redis carries the tweet stream. Without it, feeds still work but X does not.
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=nikita
+Group=nikita
+WorkingDirectory=/home/nikita/systems/news-channel
+ExecStart=/usr/bin/python3 /home/nikita/systems/news-channel/main.py run
+
+# Always restart, never "on-failure". A clean shutdown that wasn't meant to be
+# permanent would otherwise leave the channel silently dead — which happened to
+# another bot on this machine and went unnoticed for two weeks.
+Restart=always
+RestartSec=15
+
+# Print output immediately instead of buffering it, so the log is current.
+Environment=PYTHONUNBUFFERED=1
+
+# The log is appended to a file. logrotate keeps it from growing forever —
+# see deploy/news-channel.logrotate.
+StandardOutput=append:/home/nikita/systems/news-channel/logs/news-channel.log
+StandardError=append:/home/nikita/systems/news-channel/logs/news-channel.log
+
+# A ceiling on memory. This program should use well under 200 MB; if it ever
+# runs away, the limit stops it taking the rest of the server — and the trading
+# bots — down with it. This box is shared.
+MemoryHigh=400M
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target
