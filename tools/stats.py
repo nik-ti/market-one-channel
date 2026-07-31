@@ -178,7 +178,8 @@ def report(days: int = 3) -> None:
         names = {
             "title_hash": "2. same headline",
             "fuzzy": "3. same wording",
-            "embedding": "4. same meaning",
+            "embedding": "4. same subject",
+            "judge": "5. same event",
         }
         for row in rows:
             label = names.get(row["rung"], row["rung"])
@@ -194,7 +195,13 @@ def report(days: int = 3) -> None:
     if today:
         for kind in ("ingested", "irrelevant", "below_importance", "written",
                      "published", "expired",
-                     "deduped_headline", "deduped_fuzzy", "deduped_meaning"):
+                     "deduped_headline", "deduped_fuzzy", "deduped_meaning",
+                     # Check 5. judge_different is the one to watch: it counts
+                     # stories that LOOKED like repeats and were saved from
+                     # being binned. judge_error means we failed open and may
+                     # have let a real duplicate through.
+                     "deduped_judge", "judge_same", "judge_different",
+                     "judge_error"):
             if kind in today:
                 print(f"   {kind:<20} {today[kind]:>6}")
 

@@ -172,18 +172,47 @@ MAX_ATTEMPTS = _get_int("MAX_ATTEMPTS", 3)
 # =============================================================================
 # DUPLICATE DETECTION
 # =============================================================================
-# Four checks, cheapest first — see nodes/dedup.py.
+# Five checks, cheapest first — see nodes/dedup.py.
 
 # Check 3: how alike two headlines must be (0-100) to count as the same story.
 FUZZY_THRESHOLD = _get_int("FUZZY_THRESHOLD", 92)
 FUZZY_WINDOW_HOURS = _get_int("FUZZY_WINDOW_HOURS", 24)
 
-# Check 4: same MEANING rather than same words (0.0-1.0). Measured, not guessed:
-# across 188 real articles from these feeds, unrelated pairs sat below 0.79 and
-# genuine duplicates fell between 0.806 and 0.884. Lower it if duplicates slip
-# through; raise it if different stories are being merged.
-COSINE_THRESHOLD = _get_float("COSINE_THRESHOLD", 0.80)
+# Check 4: same MEANING rather than same words (0.0-1.0).
+#
+# This USED to be a single cutoff at 0.80, and it did not work. Measured on 19
+# hand-labelled pairs from this channel's own history:
+#
+#     real duplicates      scored 0.738 - 0.993
+#     genuinely different  scored 0.785 - 0.900
+#
+# Those ranges overlap, so NO single cutoff can separate them. The 0.80 line let
+# three separate posts about one Fed rate decision go out (they scored 0.738,
+# 0.745 and 0.797) while merging "$49.75M ETF OUTflows" into "$32.11M ETF
+# INflows" at 0.900 — opposite events, a day apart. Lowering the line to 0.72
+# was measured too: it doubled the wrong merges without fixing anything.
+#
+# So the score is no longer a verdict. It is a SHORTLIST, and check 5 decides.
+#
+#   >= COSINE_CERTAIN    near-verbatim; merge without paying for a judgement
+#   >= COSINE_SHORTLIST  close enough to be worth asking about -> check 5
+#   below                different story, no further checks
+#
+# 0.72 was chosen because it caught 100% of the real duplicates in that sample;
+# 0.75 already started missing them.
+COSINE_SHORTLIST = _get_float("COSINE_SHORTLIST", 0.72)
+COSINE_CERTAIN = _get_float("COSINE_CERTAIN", 0.95)
 COSINE_WINDOW_HOURS = _get_int("COSINE_WINDOW_HOURS", 48)
+
+# How many shortlisted candidates to consider. It was 1, which is why a burst of
+# three tweets about one event only ever got compared in pairs.
+DEDUP_TOP_K = _get_int("DEDUP_TOP_K", 3)
+
+# THE TIME GATE. Two items can only be the same event if they arrived close
+# together. In that same sample every real duplicate landed within 10.1 hours,
+# while the worst false merges were 24 hours apart — two days of the same
+# recurring report. This one line removes them for free, before any model runs.
+DUPLICATE_MAX_GAP_HOURS = _get_int("DUPLICATE_MAX_GAP_HOURS", 12)
 
 EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
 EMBEDDING_DIM = _get_int("EMBEDDING_DIM", 1536)
@@ -223,6 +252,48 @@ EDITOR_MODEL = _get("EDITOR_MODEL", "minimax/minimax-m2.7")
 # Alerts you if the editor starts rejecting an unusual share of posts.
 EDITOR_DECLINE_ALERT_RATE = _get_float("EDITOR_DECLINE_ALERT_RATE", 0.5)
 EDITOR_DECLINE_WINDOW = _get_int("EDITOR_DECLINE_WINDOW", 20)
+
+# 4. Duplicate check number 5: given two stories that LOOK alike, decide whether
+# they are the same event. This is the only step that can tell "ETF inflows"
+# from "ETF outflows", so it is worth choosing carefully.
+#
+# Chosen by testing three models on 20 hand-labelled pairs from this channel's
+# own history, using the exact prompt in nodes/judge.py:
+#
+#   deepseek-v3.2           80%, 0 wrong merges, order-STABLE on 6/6 pairs
+#   gemini-2.5-flash-lite   75%, 0 wrong merges, order-FLIPS on 3/6 pairs
+#   minimax-m2.7            unusable — see below
+#
+# Both got every case that has actually broken the live channel right: the Fed
+# trio AND the ETF inflow/outflow pair. deepseek wins on STABILITY, which is
+# what actually matters here.
+#
+# WHY STABILITY BEATS RAW ACCURACY
+# Gemini was faster and looked no worse on paper, but swapping which story is
+# shown first flipped its verdict on half the hard pairs. A judge whose answer
+# depends on argument order is not really judging — and this node deletes
+# content that nobody ever sees again. An unstable verdict means an unreproducible
+# bug: the same two stories merge on Monday and not on Tuesday, and you can never
+# work out why. deepseek gave the same answer both ways on all six.
+#
+# Test it yourself before switching models — ask for a verdict on (A,B) and on
+# (B,A) and check they match. A model that fails that is disqualified regardless
+# of its score.
+#
+# minimax-m2.7 is DISQUALIFIED here even though it is the editor: 13 of 20 calls
+# failed on rate limits and unreadable JSON when run concurrently. The judge
+# fires in bursts by its nature — breaking news arrives all at once — so a model
+# that falls over under concurrency is the wrong tool no matter how accurate.
+JUDGE_MODEL = _get("JUDGE_MODEL", "deepseek/deepseek-v3.2")
+
+# How long to wait for a verdict. Past this we treat the item as new and post it
+# — see "WHICH WAY IT FAILS" at the top of nodes/judge.py.
+#
+# 25s was enough for a normal day (zero timeouts replaying 188 real items) but
+# one call did hit it when 20 were fired at once. Timing out means a duplicate
+# gets published, so the extra headroom is worth more than the wait: this runs
+# inside the 120-second publish tick, which posts at most 2 items anyway.
+JUDGE_TIMEOUT_SECONDS = _get_int("JUDGE_TIMEOUT_SECONDS", 40)
 
 
 # =============================================================================

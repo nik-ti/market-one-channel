@@ -341,20 +341,47 @@ def recent_titles(hours: int, exclude_item_id: int | None = None) -> list[tuple[
     return [(row["id"], row["norm_title"]) for row in rows]
 
 
-def recent_embeddings(hours: int, exclude_item_id: int | None = None) -> list[tuple[int, bytes]]:
+def recent_embeddings(
+    hours: int,
+    exclude_item_id: int | None = None,
+    *,
+    near_time: str | None = None,
+    max_gap_hours: int | None = None,
+) -> list[tuple[int, bytes]]:
     """Return (id, meaning-vector) for items we have already made sense of.
 
     Feeds duplicate check number 4 — the one that can tell a tweet and a news
     article are about the same event even when they share almost no words.
+
+    THE TIME GATE (near_time + max_gap_hours)
+        Two items can only report the same event if they turned up at roughly
+        the same time. Passing the new item's own fetched_at as `near_time`
+        drops everything that arrived more than `max_gap_hours` either side of
+        it, before any comparison happens.
+
+        This is not a performance trick, it is an accuracy fix. Recurring
+        reports — daily ETF flows, weekly roundups, "markets wiped out today" —
+        are almost word-for-word identical from one day to the next, so they
+        score extremely highly. Yesterday's edition is the single most dangerous
+        thing in the candidate pool, and the cheapest way to deal with it is to
+        refuse to look at it. See config.DUPLICATE_MAX_GAP_HOURS.
     """
+    where = [
+        "embedding IS NOT NULL",
+        f"fetched_at > datetime('now', '-{int(hours)} hours')",
+        "id != ?",
+    ]
+    params: list = [exclude_item_id or -1]
+
+    if near_time and max_gap_hours is not None:
+        where.append(
+            "abs(julianday(fetched_at) - julianday(?)) * 24.0 <= ?"
+        )
+        params += [near_time, float(max_gap_hours)]
+
     rows = conn().execute(
-        f"""
-        SELECT id, embedding FROM items
-         WHERE embedding IS NOT NULL
-           AND fetched_at > datetime('now', '-{int(hours)} hours')
-           AND id != ?
-        """,
-        (exclude_item_id or -1,),
+        f"SELECT id, embedding FROM items WHERE {' AND '.join(where)}",
+        tuple(params),
     )
     return [(row["id"], row["embedding"]) for row in rows]
 

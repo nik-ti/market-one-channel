@@ -33,7 +33,9 @@ Feeds are checked every 10 minutes; tweets arrive continuously.
     │            │                                                       │
     │            ▼                                                       │
     │   1.  dedup.py      CHECK 3: same wording?   (rapidfuzz, ~1ms)     │
-    │                     CHECK 4: same meaning?   (embeddings, ~$0.000002)
+    │                     CHECK 4: same subject?   (embeddings — builds   │
+    │                              a shortlist, decides nothing)          │
+    │                     CHECK 5: same event?     (judge.py, ~25×/day)   │
     │            │                                                       │
     │            ▼                                                       │
     │   2.  sorter.py     AI · is it news? which market reprices?        │
@@ -164,21 +166,72 @@ after a day or two.
 ### `dedup.py`
 - **What:** decides whether we have already covered this story.
 - **In:** an item · **Out:** true/false
-- **The four checks,** cheapest first — see the table below.
-- **Fails open:** if the meaning check is unavailable, the item is treated as
-  new. A duplicate is a small embarrassment; a silent channel is worse.
+- **The five checks,** cheapest first — see the table below.
+- **Fails open:** if the meaning check or the judge is unavailable, the item is
+  treated as new. A duplicate is a small embarrassment; a silent channel is worse.
 
 | # | Check | Cost | Catches |
 |---|---|---|---|
 | 1 | same link or tweet id | free | the same article re-listed every poll — most traffic |
 | 2 | same headline | free | one story at two different addresses |
 | 3 | same wording | ~1 ms | "Fed holds rates steady" vs "Fed leaves rates unchanged" |
-| 4 | **same meaning** | ~$0.000002 | **the same event in totally different words — the only check that can match a tweet to an article** |
+| 4 | **same subject** | ~$0.000002 | draws up a **shortlist** of plausible repeats — the only check that can match a tweet to an article |
+| 5 | **same event** | ~$0.00006 | **rules on that shortlist by actually reading both stories** — see `judge.py` |
 
-Check 3 has a guard that refuses to merge two headlines differing only by a
-number, because "Fed cuts 25bp" and "Fed cuts 50bp" score 97% alike and are
-completely different events. It has already earned its keep: it rescued two
-different weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
+#### Why check 4 is not allowed to decide on its own
+
+It used to be, with one cutoff at 0.80, and it was wrong in **both directions at
+once**. Measured on 20 hand-labelled pairs from this channel's own history:
+
+```
+real duplicates       scored 0.738 - 0.993
+genuinely different   scored 0.785 - 0.900
+```
+
+Those ranges overlap, so no cutoff anywhere separates them. Two live failures:
+
+- **Missed:** three posts about one Fed rate decision went out minutes apart
+  (0.738, 0.745, 0.797 against a 0.80 line).
+- **Wrongly merged:** *"$49.75M ETF **out**flows"* absorbed *"$32.11M ETF
+  **in**flows"* at 0.900 — opposite events, a day apart. The second never posted.
+
+Lowering the cutoff was measured too: at 0.72 it caught every real duplicate and
+**doubled** the wrong merges. The cause is short text — with only a headline to
+go on, the score tracks what a story is *about*, not what *happened*, and most
+of what this channel reads is tweets.
+
+Replaying a real day (188 items, 29 July) through the new ladder dropped 18
+duplicates, **12 of which scored below the old 0.80 line** and would have been
+posted twice.
+
+#### The time gate
+
+Before checks 4-5 run, candidates more than `DUPLICATE_MAX_GAP_HOURS` (12) away
+are discarded outright. Recurring reports — daily ETF flows, weekly roundups —
+are nearly word-for-word identical from one edition to the next, so yesterday's
+is the single most dangerous thing in the pool. Every real duplicate measured
+here arrived within 10.1 hours; the worst false merges were 24 hours apart.
+
+#### The numbers guard
+
+Checks 3 and 4 both refuse to merge two headlines differing only by a number,
+because "Fed cuts 25bp" and "Fed cuts 50bp" score 97% alike and are completely
+different events. It has already earned its keep: it rescued two different
+weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
+
+### `judge.py` (AI)
+- **What:** given two stories that look alike, are they the same event?
+- **In:** the new item + one candidate · **Out:** true/false + a written reason
+- **Runs ~25 times a day** — only on the shortlist, not on everything.
+- **Model:** `google/gemini-2.5-flash-lite`. Picked over deepseek-v3.2 because
+  it made **no wrong merges** on the test set (85% vs 80%) and is 7× faster.
+  A wrong merge silently deletes a real story; a missed duplicate just means one
+  extra post. Prefer the model that errs towards publishing.
+- **`minimax-m2.7` is disqualified** here despite being the editor: 13 of 20
+  concurrent calls failed on rate limits and unreadable JSON. The judge fires in
+  bursts by nature — breaking news arrives all at once.
+- **Every verdict is logged** to `dedup_hits` with the reason in plain English,
+  so you can see *why* a post vanished instead of guessing.
 
 ### `sorter.py` (AI)
 - **What:** is this news at all, what topic, **which market has to reprice**, and
@@ -393,7 +446,11 @@ restarting the service.
 | `ARTICLE_MAX_AGE_HOURS` | 24 | Articles older than this are ignored — guards against an abandoned feed serving old content as news. |
 | `X_MAX_AGE_MINUTES` | 45 | Same idea for tweets, and what stops a restart flooding the channel. |
 | `MAX_POSTS_PER_HOUR` | 12 | Start at 4 while tuning, raise once happy. |
-| `COSINE_THRESHOLD` | 0.80 | Duplicate-meaning sensitivity. Lower catches more duplicates; higher risks merging different stories. |
+| `COSINE_SHORTLIST` | 0.72 | How alike two stories must look to be *considered* a repeat. This no longer decides anything — it only picks who gets read by the judge. Lower it if real duplicates are slipping past unexamined. |
+| `COSINE_CERTAIN` | 0.95 | Above this, merge without paying for a judgement. Rarely fires (0 times in a 188-item day) — it only catches near-verbatim reposts. |
+| `DUPLICATE_MAX_GAP_HOURS` | 12 | Two items further apart than this are never compared. **The cheapest accuracy setting in the project** — it is what stops yesterday's daily report absorbing today's. |
+| `DEDUP_TOP_K` | 3 | How many shortlisted candidates get considered. Was effectively 1, which meant a rejected front-runner ended the search. |
+| `JUDGE_MODEL` | `google/gemini-2.5-flash-lite` | Decides "same event or not". Prefer a model that errs towards publishing. |
 
 ## The four numbers worth watching
 
@@ -416,8 +473,8 @@ restarting the service.
 | "Not enough rights" | The bot is in the channel but isn't an admin with Post Messages |
 | A feed stopped working | `tools/check_sources.py`. Sites move their feeds; you get an alert after 5 straight failures |
 | No tweets ever arrive | `systemctl status tweet-relay`. Also check the handle is in **both** `accounts.txt` and `X_ACCOUNTS` |
-| Duplicates getting through | Lower `COSINE_THRESHOLD` (0.86 → 0.82) in `.env` |
-| Real stories being merged | Raise `COSINE_THRESHOLD` (0.86 → 0.90). Check what it merged with `stats.py` |
+| Duplicates getting through | First check *why* with `stats.py`. If the pair never reached the judge, lower `COSINE_SHORTLIST` (0.72 → 0.68). If the judge saw it and said "different", the prompt in `nodes/judge.py` needs the case adding. If `judge_error` is climbing, the model is unreachable and everything is failing open. |
+| Real stories being merged | Look at the `judge` rows in `stats.py` — each one records the reason in plain English. Fix the prompt in `nodes/judge.py` rather than the threshold; raising `COSINE_SHORTLIST` only hides the pair from the one thing that can judge it. |
 | Posts sound wrong | Edit `PROMPT` in `nodes/writer.py`, rehearse with `dry_run.py` |
 | Posts are real news but nobody would trade on them | `nodes/sorter.py`, not the editor. Check `stats.py --dropped --market none` to see what it *is* catching, then tighten the market definitions |
 | The channel has gone quiet | `stats.py --dropped` — if good stories are in that list, the gate is too strict. Loosen the continuing-story test before touching `MIN_IMPORTANCE` |

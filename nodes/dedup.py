@@ -12,7 +12,7 @@ THE PROBLEM THIS SOLVES
     one story. Posting all three makes the channel look automated and cheap.
 
 THE LADDER
-    Four checks, cheapest first. An item only reaches a check if everything
+    Five checks, cheapest first. An item only reaches a check if everything
     above it let it through.
 
       1. SAME LINK OR TWEET        free      Handled by the database itself.
@@ -27,24 +27,45 @@ THE LADDER
       3. NEARLY THE SAME WORDING   ~1ms      "Fed holds rates steady" versus
                                              "Fed leaves rates unchanged".
 
-      4. THE SAME MEANING          ~1 call   The important one. "BREAKING: SEC
-                                             approves spot ETH ETF" and
-                                             "Regulator green-lights ether
-                                             exchange-traded funds" share almost
-                                             no words at all. Only this check can
-                                             see they are one story — and it is
-                                             the only check that can match a
-                                             tweet to a news article.
+      4. THE SAME SUBJECT          ~1 call   Turns each story into numbers that
+                                             describe its meaning and finds the
+                                             closest recent ones. This is the
+                                             only check that can match a tweet
+                                             to a news article. It draws up a
+                                             SHORTLIST — it does not decide.
 
-WHY BOTHER WITH THE CHEAP ONES IF STEP 4 CATCHES EVERYTHING?
-    Honestly, not to save money on step 4 — that costs about $0.000002 an item.
-    The reasons are:
+      5. THE SAME EVENT            ~1 call   Reads the two stories properly and
+                                             rules. "BREAKING: SEC approves spot
+                                             ETH ETF" and "Regulator green-lights
+                                             ether ETFs" are one event; "$49M
+                                             ETF outflows" and "$32M ETF
+                                             inflows" are two, despite scoring
+                                             higher at step 4. See nodes/judge.py.
+
+WHY STEP 4 IS NOT ALLOWED TO DECIDE ANY MORE
+    It used to be. It had a single cutoff at 0.80 and it was wrong in both
+    directions at once — see the long note in nodes/judge.py for the measured
+    numbers and the two live failures that prompted this. Short text is the
+    problem: with only a headline to go on, the measurement tracks what a story
+    is ABOUT, not what happened. Most of what this channel reads is short.
+
+WHY BOTHER WITH THE CHEAP ONES IF STEPS 4-5 CATCH EVERYTHING?
+    Honestly, not to save money — step 4 costs about $0.000002 an item and step
+    5 only runs on a shortlist, roughly 16 times a day. The reasons are:
       - Steps 1 and 2 dispose of roughly 85% of everything for free. Sending all
         of that over the network would mean hundreds of pointless calls an hour.
-      - Steps 1-3 take microseconds; step 4 needs a network round trip. On
+      - Steps 1-3 take microseconds; steps 4-5 need network round trips. On
         breaking news, that delay is the difference between first and late.
       - The real money is further down the line. Anything killed here never
         reaches the writer, which costs about $0.0012 a time.
+
+THE TIME GATE
+    Before any of steps 4-5 run, candidates more than DUPLICATE_MAX_GAP_HOURS
+    from the new item are discarded outright. Recurring reports — daily ETF
+    flows, weekly roundups — are nearly word-for-word identical from one edition
+    to the next, so yesterday's is the most dangerous thing in the pool. Every
+    real duplicate measured on this channel arrived within 10.1 hours; the worst
+    false merges were 24 hours apart. See db.recent_embeddings.
 
 WHICH WAY IT FAILS
     If the meaning check is unavailable (the service is down, the key is wrong),
@@ -150,22 +171,38 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
 
 
 # --- Check 4: is this the same EVENT, in different words? ---
-async def check_meaning(item_id: int, title: str, body: str, item_norm_title: str = "") -> bool:
-    """True if this story means the same as something we already covered.
+async def check_meaning(item, item_norm_title: str = "") -> bool:
+    """True if this story reports the same event as something we already covered.
 
-    This is the check that does the real work, and the only one that can spot
-    that a tweet and a news article are about the same event.
+    THIS STEP NO LONGER DECIDES ANYTHING ON ITS OWN. It draws up a shortlist.
 
     How it works, briefly: the text is sent away and comes back as a long list
     of numbers that represents its meaning. Two texts about the same thing come
-    back as similar lists, even with no words in common. We then measure how
-    closely two lists point in the same direction — 1.0 is identical meaning,
-    0.0 is unrelated. Above COSINE_THRESHOLD (0.86) we call it the same story.
+    back as similar lists, even with no words in common. We measure how closely
+    two lists point in the same direction — 1.0 is identical meaning, 0.0 is
+    unrelated.
+
+    That measurement is excellent at finding candidates and unreliable at
+    ruling on them, because on short text it tracks the SUBJECT rather than the
+    happening. So it is used for what it is good at:
+
+        >= COSINE_CERTAIN (0.95)     near-verbatim — merge, no model needed
+        >= COSINE_SHORTLIST (0.72)   plausible — hand it to check 5 (the judge)
+        below                        different story, stop here
+
+    Candidates are also time-gated before any of this: see the note on
+    db.recent_embeddings. Only DEDUP_TOP_K of them are considered, best first,
+    and we stop at the first genuine duplicate.
 
     Returns False on any failure — see the note at the top of this file about
     which way each check fails.
     """
     from utils import embeddings
+    from nodes import judge
+
+    item_id = item["id"]
+    title = item["title"] or ""
+    body = item["body"] or ""
 
     # Always describe an item the same way before measuring it. A 40-word tweet
     # and a 900-word article about one event would otherwise look different
@@ -185,45 +222,100 @@ async def check_meaning(item_id: int, title: str, body: str, item_norm_title: st
     blob = embeddings.to_blob(vector)
     db.set_item_embedding(item_id, blob)
 
-    candidates = db.recent_embeddings(config.COSINE_WINDOW_HOURS, exclude_item_id=item_id)
+    candidates = db.recent_embeddings(
+        config.COSINE_WINDOW_HOURS,
+        exclude_item_id=item_id,
+        near_time=item["fetched_at"],
+        max_gap_hours=config.DUPLICATE_MAX_GAP_HOURS,
+    )
     if not candidates:
         return False
 
     matches = embeddings.most_similar(
-        vector, candidates, top_k=1, threshold=config.COSINE_THRESHOLD
+        vector, candidates,
+        top_k=config.DEDUP_TOP_K,
+        threshold=config.COSINE_SHORTLIST,
     )
     if not matches:
         return False
 
-    matched_id, score = matches[0]
-    matched = db.get_item(matched_id)
-    matched_title = matched["title"] if matched else "(gone)"
+    # Walk the shortlist best-first. A candidate that gets ruled out does NOT
+    # end the search — before this was a loop, the single nearest neighbour
+    # could be ruled out and a genuine duplicate sitting just behind it was
+    # never looked at.
+    for matched_id, score in matches:
+        matched = db.get_item(matched_id)
+        if matched is None:
+            continue
+        matched_title = matched["title"] or ""
 
-    # THE NUMBERS GUARD AGAIN — it is needed here just as much as at check 3.
-    # Recurring columns are the problem case: "New Ecommerce Tools: July 15" and
-    # "New Ecommerce Tools: July 22" are two completely different articles, but
-    # they mean almost exactly the same thing and scored 0.806 on real data —
-    # high enough to be merged. Blanking the numbers makes them identical, which
-    # is the signal that the only difference is a date or a figure. When that is
-    # true we refuse to merge, exactly as at check 3.
-    if matched is not None and textclean.same_but_for_digits(
-        item_norm_title, matched["norm_title"] or ""
-    ):
+        # THE NUMBERS GUARD — needed here just as much as at check 3.
+        # Recurring columns are the problem case: "New Ecommerce Tools: July 15"
+        # and "New Ecommerce Tools: July 22" are two completely different
+        # articles that mean almost exactly the same thing, and scored 0.806 on
+        # real data. Blanking the digits makes them identical, which is the
+        # signal that only a date or a figure separates them. We refuse to merge
+        # on this candidate — and move on to the next one.
+        if textclean.same_but_for_digits(item_norm_title, matched["norm_title"] or ""):
+            db.log_dedup_hit(
+                item_id=item_id, matched_item_id=matched_id, rung="embedding",
+                score=score, kept=True,
+                detail=f"KEPT (differs only by a number): {title[:120]} ~ {matched_title[:120]}",
+            )
+            log.info("Same-meaning KEPT (only a number differs, %.3f): %r", score, title[:70])
+            continue
+
+        # Near-verbatim. Not worth paying a model to confirm what 0.95 already
+        # means — at that score the two texts are the same sentences reordered.
+        if score >= config.COSINE_CERTAIN:
+            db.log_dedup_hit(
+                item_id=item_id, matched_item_id=matched_id, rung="embedding",
+                score=score, kept=False,
+                detail=f"{title[:150]}  ~{score:.3f}~  {matched_title[:150]}",
+            )
+            log.info("Duplicate meaning (%.3f, certain): %r ≈ %r",
+                     score, title[:70], matched_title[:70])
+            db.bump_counter("deduped_meaning")
+            return True
+
+        # CHECK 5. The score got us a plausible candidate; it cannot tell us
+        # whether "rates unchanged" and "rates held" are one event while
+        # "inflows" and "outflows" are two. Ask something that can read.
+        same, reason = await judge.execute(item, matched)
+
+        if same is None:
+            # The judge was unreachable. Fail open on THIS candidate only and
+            # keep looking — a later one may still be settled cheaply.
+            db.log_dedup_hit(
+                item_id=item_id, matched_item_id=matched_id, rung="judge",
+                score=score, kept=True,
+                detail=f"KEPT (judge unavailable: {reason}): "
+                       f"{title[:110]} ~ {matched_title[:110]}",
+            )
+            continue
+
+        if not same:
+            db.log_dedup_hit(
+                item_id=item_id, matched_item_id=matched_id, rung="judge",
+                score=score, kept=True,
+                detail=f"KEPT (different event: {reason[:120]}): "
+                       f"{title[:110]} ~{score:.3f}~ {matched_title[:110]}",
+            )
+            log.info("Looked alike (%.3f) but judged a DIFFERENT event: %r vs %r — %s",
+                     score, title[:60], matched_title[:60], reason[:100])
+            continue
+
         db.log_dedup_hit(
-            item_id=item_id, matched_item_id=matched_id, rung="embedding",
-            score=score, kept=True,
-            detail=f"KEPT (differs only by a number): {title[:120]} ~ {matched_title[:120]}",
+            item_id=item_id, matched_item_id=matched_id, rung="judge",
+            score=score, kept=False,
+            detail=f"{title[:130]}  ~{score:.3f}~  {matched_title[:130]}  | {reason[:120]}",
         )
-        log.info("Same-meaning KEPT (only a number differs, %.3f): %r", score, title[:70])
-        return False
+        log.info("Duplicate event (%.3f, judged): %r ≈ %r — %s",
+                 score, title[:60], matched_title[:60], reason[:100])
+        db.bump_counter("deduped_judge")
+        return True
 
-    db.log_dedup_hit(
-        item_id=item_id, matched_item_id=matched_id, rung="embedding",
-        score=score, kept=False,
-        detail=f"{title[:150]}  ~{score:.3f}~  {matched_title[:150]}",
-    )
-    log.info("Duplicate meaning (%.3f): %r ≈ %r", score, title[:70], matched_title[:70])
-    return True
+    return False
 
 
 # --- The node's entry point: run the checks that need doing now ---
@@ -249,10 +341,11 @@ async def execute(item, *, with_meaning: bool = True) -> bool:
         return True
 
     if with_meaning:
-        if await check_meaning(item_id, title, item["body"] or "",
-                               item_norm_title=item["norm_title"] or ""):
-            db.set_item_status(item_id, "duplicate", "same meaning as a recent story")
-            db.bump_counter("deduped_meaning")
+        # Checks 4 and 5 together: the shortlist and the ruling on it. The
+        # counters are bumped inside, because only that code knows whether the
+        # verdict was settled by the score or by the judge.
+        if await check_meaning(item, item_norm_title=item["norm_title"] or ""):
+            db.set_item_status(item_id, "duplicate", "same event as a recent story")
             return True
 
     return False
