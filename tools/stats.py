@@ -189,6 +189,19 @@ def report(days: int = 3) -> None:
     else:
         print("   None caught yet.")
 
+    # The meaning check fails OPEN, so a broken one looks exactly like a quiet
+    # one from up here. This is the line that tells them apart.
+    failures = db.get_counters().get("meaning_check_failed", 0)
+    if failures:
+        print(f"\n   ⚠️  The MEANING check failed {failures} time(s) today. Every one")
+        print("       of those items was published without it — checks 1-3 compare")
+        print("       wording only and cannot match a tweet to an article.")
+        print("       Run: python3 tools/check_dedup.py")
+    elif not any(r["rung"] == "embedding" for r in rows):
+        print("\n   Check 4 (meaning) has not fired. That is either fine — your")
+        print("   sources don't overlap — or it is not running at all. Those look")
+        print("   identical from here, so confirm with: python3 tools/check_dedup.py")
+
     # --- Are we collecting more than we can post? ---
     _section("Intake versus output")
     today = db.get_counters()

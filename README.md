@@ -169,6 +169,20 @@ after a day or two.
 - **The five checks,** cheapest first — see the table below.
 - **Fails open:** if the meaning check or the judge is unavailable, the item is
   treated as new. A duplicate is a small embarrassment; a silent channel is worse.
+- **It used to fail open in silence, which is a different thing.** A `dedup_hit`
+  row is only written when two items MATCH, so "check 4 ran and found nothing"
+  and "check 4 never ran and waved everything through" left identical evidence —
+  none. Three tweets about one Fed decision went out four minutes apart and the
+  database could not say which had happened. Now: failures are counted and
+  logged, ten in a row sends you a Telegram alert, and **near misses are
+  recorded** — a pair scoring just under the shortlist floor is written down as
+  `kept=1`, so a floor set slightly too high is visible instead of invisible.
+- **Diagnose it with `tools/check_dedup.py`.** It answers, in about a second:
+  is the embedding service reachable; what share of processed items actually
+  have a stored vector (if that is low, the check has been off and everything
+  went out unchecked); which recent pairs were near misses; and
+  `--pairs 30` scores what actually got published against itself, so you can see
+  the exact score of any two posts that should have been one.
 
 | # | Check | Cost | Catches |
 |---|---|---|---|
@@ -406,6 +420,7 @@ python3 main.py stats               # how is it doing?
 python3 tools/stats.py --declines   # what did the editor reject, and was it right?
 python3 tools/stats.py --dropped    # what real news did the gate refuse to run?
 python3 tools/check_sources.py      # are all the feeds still alive?
+python3 tools/check_dedup.py        # is the meaning check actually running?
 python3 tools/check_tweets.py       # watch the X stream live
 tail -f logs/news-channel.log       # what is it doing right now?
 ```
@@ -473,8 +488,8 @@ restarting the service.
 | "Not enough rights" | The bot is in the channel but isn't an admin with Post Messages |
 | A feed stopped working | `tools/check_sources.py`. Sites move their feeds; you get an alert after 5 straight failures |
 | No tweets ever arrive | `systemctl status tweet-relay`. Also check the handle is in **both** `accounts.txt` and `X_ACCOUNTS` |
-| Duplicates getting through | First check *why* with `stats.py`. If the pair never reached the judge, lower `COSINE_SHORTLIST` (0.72 → 0.68). If the judge saw it and said "different", the prompt in `nodes/judge.py` needs the case adding. If `judge_error` is climbing, the model is unreachable and everything is failing open. |
-| Real stories being merged | Look at the `judge` rows in `stats.py` — each one records the reason in plain English. Fix the prompt in `nodes/judge.py` rather than the threshold; raising `COSINE_SHORTLIST` only hides the pair from the one thing that can judge it. |
+| Duplicates getting through | **First run `tools/check_dedup.py`** — confirm checks 4-5 are running at all before touching anything. Then `stats.py`: if the pair never reached the judge, lower `COSINE_SHORTLIST` to just under the near-miss score reported. If the judge saw it and said "different", the prompt in `nodes/judge.py` needs the case adding. If `judge_error` is climbing, the model is unreachable and everything is failing open. |
+| Real stories being merged | Look at the `judge` rows in `stats.py` — each records its reason in plain English. Fix the prompt in `nodes/judge.py`, not the floor; raising `COSINE_SHORTLIST` only hides the pair from the one thing that can judge it. |
 | Posts sound wrong | Edit `PROMPT` in `nodes/writer.py`, rehearse with `dry_run.py` |
 | Posts are real news but nobody would trade on them | `nodes/sorter.py`, not the editor. Check `stats.py --dropped --market none` to see what it *is* catching, then tighten the market definitions |
 | The channel has gone quiet | `stats.py --dropped` — if good stories are in that list, the gate is too strict. Loosen the continuing-story test before touching `MIN_IMPORTANCE` |
