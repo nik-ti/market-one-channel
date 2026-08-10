@@ -238,32 +238,23 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
     return True
 
 
-# --- Check 4: is this the same EVENT, in different words? ---
-async def check_meaning(item, item_norm_title: str = "") -> bool:
-    """True if this story reports the same event as something we already covered.
+# --- Check 4: is this the same EVENT, a CONTINUATION, or a different story? ---
+async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | None, float]:
+    """Return the relationship between this item and any recent similar item.
 
-    THIS STEP NO LONGER DECIDES ANYTHING ON ITS OWN. It draws up a shortlist.
+    Returns a tuple (verdict, matched_item_id, score):
+      verdict:  "duplicate"    → same event; the newer item should be dropped
+                "continuation" → same developing story, new development; should
+                                  thread as a reply to matched_item_id
+                "different"    → unrelated or different happening
+                "error"        → could not get a verdict (fail open)
+      matched_item_id: the older item it relates to, when verdict is duplicate
+                       or continuation; otherwise None.
+      score: the cosine similarity that put the candidate on the shortlist.
 
-    How it works, briefly: the text is sent away and comes back as a long list
-    of numbers that represents its meaning. Two texts about the same thing come
-    back as similar lists, even with no words in common. We measure how closely
-    two lists point in the same direction — 1.0 is identical meaning, 0.0 is
-    unrelated.
-
-    That measurement is excellent at finding candidates and unreliable at
-    ruling on them, because on short text it tracks the SUBJECT rather than the
-    happening. So it is used for what it is good at:
-
-        >= COSINE_CERTAIN (0.95)     near-verbatim — merge, no model needed
-        >= COSINE_SHORTLIST (0.72)   plausible — hand it to check 5 (the judge)
-        below                        different story, stop here
-
-    Candidates are also time-gated before any of this: see the note on
-    db.recent_embeddings. Only DEDUP_TOP_K of them are considered, best first,
-    and we stop at the first genuine duplicate.
-
-    Returns False on any failure — see the note at the top of this file about
-    which way each check fails.
+    This step no longer decides anything on its own for duplicates — the judge
+    reads the pair. But it now ALSO distinguishes genuine continuations, which
+    the old pipeline had no language for.
     """
     from utils import embeddings
     from nodes import judge
@@ -272,23 +263,17 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
     title = item["title"] or ""
     body = item["body"] or ""
 
-    # Always describe an item the same way before measuring it. A 40-word tweet
-    # and a 900-word article about one event would otherwise look different
-    # simply because of their length — which would undermine the exact
-    # cross-source case this check exists for.
     text = f"{title}\n{body[:400]}".strip()
     if not text:
-        return False
+        return "different", None, 0.0
 
     vector = await embeddings.embed_one(text)
     if vector is None:
         _record_meaning_failure(item_id)
-        return False
+        return "error", None, 0.0
 
     _record_meaning_success()
 
-    # Remember this item's meaning so future items can be compared against it,
-    # whether or not it turns out to be a duplicate itself.
     blob = embeddings.to_blob(vector)
     db.set_item_embedding(item_id, blob)
 
@@ -299,12 +284,8 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
         max_gap_hours=config.DUPLICATE_MAX_GAP_HOURS,
     )
     if not candidates:
-        return False
+        return "different", None, 0.0
 
-    # Ask for the candidates REGARDLESS of the shortlist floor, so that a near
-    # miss leaves a trace. Without this, an item scoring 0.71 against a floor of
-    # 0.72 was indistinguishable from one scoring 0.11 — and it is precisely the
-    # near misses that tell you the floor is set wrong.
     best = embeddings.most_similar(
         vector, candidates, top_k=config.DEDUP_TOP_K, threshold=0.0
     )
@@ -324,25 +305,14 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
                 log.info("Near miss on meaning (%.3f, floor %.2f): %r ≈ %r",
                          near_score, config.COSINE_SHORTLIST, title[:60],
                          (near["title"] if near else "")[:60])
-        return False
+        return "different", None, 0.0
 
-    # Walk the shortlist best-first. A candidate that gets ruled out does NOT
-    # end the search — before this was a loop, the single nearest neighbour
-    # could be ruled out and a genuine duplicate sitting just behind it was
-    # never looked at.
     for matched_id, score in matches:
         matched = db.get_item(matched_id)
         if matched is None:
             continue
         matched_title = matched["title"] or ""
 
-        # THE NUMBERS GUARD — needed here just as much as at check 3.
-        # Recurring columns are the problem case: "New Ecommerce Tools: July 15"
-        # and "New Ecommerce Tools: July 22" are two completely different
-        # articles that mean almost exactly the same thing, and scored 0.806 on
-        # real data. Blanking the digits makes them identical, which is the
-        # signal that only a date or a figure separates them. We refuse to merge
-        # on this candidate — and move on to the next one.
         if textclean.same_but_for_digits(item_norm_title, matched["norm_title"] or ""):
             db.log_dedup_hit(
                 item_id=item_id, matched_item_id=matched_id, rung="embedding",
@@ -352,8 +322,6 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
             log.info("Same-meaning KEPT (only a number differs, %.3f): %r", score, title[:70])
             continue
 
-        # Near-verbatim. Not worth paying a model to confirm what 0.95 already
-        # means — at that score the two texts are the same sentences reordered.
         if score >= config.COSINE_CERTAIN:
             db.log_dedup_hit(
                 item_id=item_id, matched_item_id=matched_id, rung="embedding",
@@ -363,16 +331,12 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
             log.info("Duplicate meaning (%.3f, certain): %r ≈ %r",
                      score, title[:70], matched_title[:70])
             db.bump_counter("deduped_meaning")
-            return True
+            return "duplicate", matched_id, score
 
-        # CHECK 5. The score got us a plausible candidate; it cannot tell us
-        # whether "rates unchanged" and "rates held" are one event while
-        # "inflows" and "outflows" are two. Ask something that can read.
-        same, reason = await judge.execute(item, matched)
+        # Ask the three-way judge instead of the old binary one.
+        verdict, reason = await judge.execute_three_way(item, matched)
 
-        if same is None:
-            # The judge was unreachable. Fail open on THIS candidate only and
-            # keep looking — a later one may still be settled cheaply.
+        if verdict is None:
             db.log_dedup_hit(
                 item_id=item_id, matched_item_id=matched_id, rung="judge",
                 score=score, kept=True,
@@ -381,7 +345,7 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
             )
             continue
 
-        if not same:
+        if verdict == "different":
             db.log_dedup_hit(
                 item_id=item_id, matched_item_id=matched_id, rung="judge",
                 score=score, kept=True,
@@ -392,6 +356,18 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
                      score, title[:60], matched_title[:60], reason[:100])
             continue
 
+        if verdict == "continuation":
+            db.log_dedup_hit(
+                item_id=item_id, matched_item_id=matched_id, rung="continuation",
+                score=score, kept=True,
+                detail=f"CONTINUATION ({reason[:120]}): "
+                       f"{title[:110]} ~{score:.3f}~ {matched_title[:110]}",
+            )
+            log.info("Continuation (%.3f): %r → %r — %s",
+                     score, title[:60], matched_title[:60], reason[:100])
+            return "continuation", matched_id, score
+
+        # verdict == "same_event"
         db.log_dedup_hit(
             item_id=item_id, matched_item_id=matched_id, rung="judge",
             score=score, kept=False,
@@ -400,9 +376,25 @@ async def check_meaning(item, item_norm_title: str = "") -> bool:
         log.info("Duplicate event (%.3f, judged): %r ≈ %r — %s",
                  score, title[:60], matched_title[:60], reason[:100])
         db.bump_counter("deduped_judge")
-        return True
+        return "duplicate", matched_id, score
 
-    return False
+    return "different", None, 0.0
+
+
+# --- Internal classifier used by the brain ---
+async def classify(item, *, with_meaning: bool = True) -> tuple[str, int | None, float]:
+    """Run checks 3 and 4 and return the full verdict, without setting statuses.
+
+    This is what the brain's relationship_check node calls. It needs the raw
+    verdict (duplicate / continuation / different) so it can route correctly.
+    """
+    if check_wording(item["id"], item["title"] or "", item.get("norm_title") or ""):
+        # Wording duplicates don't carry a matched id for downstream use; they
+        # are always dropped. Return a synthetic score of 100.
+        return "duplicate", None, 100.0
+    if not with_meaning:
+        return "different", None, 0.0
+    return await check_meaning(item, item_norm_title=item.get("norm_title") or "")
 
 
 # --- The node's entry point: run the checks that need doing now ---
@@ -414,6 +406,10 @@ async def execute(item, *, with_meaning: bool = True) -> bool:
     and 4, which are deliberately deferred: they are the slower ones, and doing
     them at posting time rather than collection time means we only pay for items
     that are actually candidates for publication.
+
+    This function is the OLD binary API. It treats continuations as NOT
+    duplicates, because the old pipeline has no threading. The brain uses
+    classify() instead.
 
     Args:
         item:         a row from the items table.
@@ -428,10 +424,8 @@ async def execute(item, *, with_meaning: bool = True) -> bool:
         return True
 
     if with_meaning:
-        # Checks 4 and 5 together: the shortlist and the ruling on it. The
-        # counters are bumped inside, because only that code knows whether the
-        # verdict was settled by the score or by the judge.
-        if await check_meaning(item, item_norm_title=item["norm_title"] or ""):
+        verdict, _, _ = await check_meaning(item, item_norm_title=item["norm_title"] or "")
+        if verdict == "duplicate":
             db.set_item_status(item_id, "duplicate", "same event as a recent story")
             return True
 

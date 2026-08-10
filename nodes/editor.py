@@ -212,7 +212,7 @@ def _check_calibration() -> None:
 
 # --- The node's entry point ---
 async def execute(item, post_html: str, post_id: int, record: bool = True,
-                  verbatim: bool = False) -> dict:
+                  verbatim: bool = False, attempt: int = 1) -> dict:
     """Judge one finished post. Records the decision either way.
 
     Args:
@@ -225,6 +225,9 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
         record:    write the decision to the audit log. Only tools/dry_run.py
                    sets this to False, so that rehearsing on real items doesn't
                    distort the real rejection statistics.
+        attempt:   which draft this is. The brain's rewrite loop re-judges a
+                   rewritten post with attempt=2, so the audit log can tell a
+                   first-pass verdict from a rewrite verdict.
 
     Returns a dictionary with:
         approved     (bool)  may this be published
@@ -289,6 +292,7 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
             post_id=post_id, item_id=item["id"], verdict=verdict,
             rules_broken=rules_broken, reason=reason, confidence=confidence,
             post_html=post_html, model=MODEL, latency_ms=latency_ms,
+            attempt=attempt,
         )
         db.bump_counter("approved" if approved else "declined")
 

@@ -85,7 +85,12 @@ _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     # nodes/sorter.py. Added after the "market impact" score turned out to be
     # unreviewable without it: a bare 4 tells you nothing about WHY the model
     # thought a trader would care.
-    "items": [("market", "ALTER TABLE items ADD COLUMN market TEXT DEFAULT ''")],
+    "items": [
+        ("market", "ALTER TABLE items ADD COLUMN market TEXT DEFAULT ''"),
+        # The item this continuation is a follow-up to. Used by the brain to
+        # find the published post and send the reply with reply_to_message_id.
+        ("continuation_of", "ALTER TABLE items ADD COLUMN continuation_of INTEGER DEFAULT NULL"),
+    ],
 }
 
 
@@ -616,6 +621,22 @@ def set_post_status(post_id: int, status: str) -> None:
     conn().commit()
 
 
+def update_post_text(post_id: int, post_html: str) -> None:
+    """Replace the text of an existing post. Used by the brain's rewrite loop.
+
+    The rewrite loop sends a rejected draft back to the writer and gets a fixed
+    version. The post row already exists (one per item, enforced by the
+    database), so the new text REPLACES the old — the rejected draft is not
+    lost, though: the editor's decision log keeps a frozen copy of exactly what
+    it judged, which is where rejected text is meant to live.
+    """
+    conn().execute(
+        "UPDATE posts SET post_html = ?, char_count = ?, status = 'draft' WHERE id = ?",
+        (post_html, len(post_html), post_id),
+    )
+    conn().commit()
+
+
 def mark_post_sent(post_id: int, message_id: int, post_url: str) -> None:
     """Record that a post reached the channel, and where it landed."""
     conn().execute(
@@ -625,6 +646,42 @@ def mark_post_sent(post_id: int, message_id: int, post_url: str) -> None:
          WHERE id = ?
         """,
         (message_id, post_url, now_iso(), post_id),
+    )
+    conn().commit()
+
+
+def get_published_post_for_item(item_id: int) -> sqlite3.Row | None:
+    """Fetch the published Telegram post that belongs to an item, if any.
+
+    Used by the brain's continuation path: a continuation needs the
+    telegram_message_id of the original post so Telegram can render the reply.
+    """
+    return conn().execute(
+        "SELECT id, post_html, telegram_message_id FROM posts "
+        "WHERE item_id = ? AND status = 'sent' AND telegram_message_id IS NOT NULL",
+        (item_id,),
+    ).fetchone()
+
+
+def get_recent_sent_posts(limit: int) -> list[sqlite3.Row]:
+    """Return the most recently published posts, newest first.
+
+    Used by the brain's persona memory (step 5): the writer can see the last few
+    posts so its tone stays consistent. Only visible text is returned.
+    """
+    return list(conn().execute(
+        "SELECT id, post_html, sent_at FROM posts "
+        "WHERE status = 'sent' AND post_html != '' "
+        "ORDER BY sent_at DESC, id DESC LIMIT ?",
+        (limit,),
+    ))
+
+
+def set_item_continuation(item_id: int, parent_item_id: int) -> None:
+    """Record that an item is a continuation of an earlier item."""
+    conn().execute(
+        "UPDATE items SET continuation_of = ?, updated_at = ? WHERE id = ?",
+        (parent_item_id, now_iso(), item_id),
     )
     conn().commit()
 

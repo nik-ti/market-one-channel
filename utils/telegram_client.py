@@ -94,14 +94,21 @@ def _is_formatting_problem(error: Exception) -> bool:
 
 
 # --- Send a plain text post ---
-async def send_text(html: str) -> int:
+async def send_text(html: str, reply_to_message_id: int | None = None) -> int:
     """Send a text message to the channel. Returns Telegram's message number.
+
+    Args:
+        reply_to_message_id: if given, Telegram renders this message as a
+                             reply to that earlier channel message.
 
     Raises on failure, so the caller can count the attempt and retry later.
     """
     bot = await _get_bot()
     safe = telegram_html.safe_truncate(telegram_html.sanitize(html),
                                        telegram_html.TEXT_LIMIT)
+    reply_kwargs = {}
+    if reply_to_message_id is not None:
+        reply_kwargs["reply_to_message_id"] = reply_to_message_id
 
     try:
         message = await bot.send_message(
@@ -109,6 +116,7 @@ async def send_text(html: str) -> int:
             text=safe,
             parse_mode="HTML",
             disable_web_page_preview=True,
+            **reply_kwargs,
         )
         return message.message_id
 
@@ -121,6 +129,7 @@ async def send_text(html: str) -> int:
         message = await bot.send_message(
             chat_id=config.CHANNEL_ID, text=safe,
             parse_mode="HTML", disable_web_page_preview=True,
+            **reply_kwargs,
         )
         return message.message_id
 
@@ -134,13 +143,19 @@ async def send_text(html: str) -> int:
         )
         message = await bot.send_message(
             chat_id=config.CHANNEL_ID, text=plain, disable_web_page_preview=True,
+            **reply_kwargs,
         )
         return message.message_id
 
 
 # --- Send a post with a picture ---
-async def send_photo(image_url: str, caption_html: str) -> int:
+async def send_photo(image_url: str, caption_html: str,
+                     reply_to_message_id: int | None = None) -> int:
     """Send a photo with the post as its caption. Returns the message number.
+
+    Args:
+        reply_to_message_id: if given, Telegram renders this message as a
+                             reply to that earlier channel message.
 
     Telegram fetches the image from the address itself, so we never download it.
     That is faster, but it does mean Telegram sometimes cannot reach an image —
@@ -149,6 +164,9 @@ async def send_photo(image_url: str, caption_html: str) -> int:
     bot = await _get_bot()
     safe = telegram_html.safe_truncate(telegram_html.sanitize(caption_html),
                                        telegram_html.CAPTION_LIMIT)
+    reply_kwargs = {}
+    if reply_to_message_id is not None:
+        reply_kwargs["reply_to_message_id"] = reply_to_message_id
 
     try:
         message = await bot.send_photo(
@@ -156,6 +174,7 @@ async def send_photo(image_url: str, caption_html: str) -> int:
             photo=image_url,
             caption=safe,
             parse_mode="HTML",
+            **reply_kwargs,
         )
         return message.message_id
 
@@ -166,6 +185,7 @@ async def send_photo(image_url: str, caption_html: str) -> int:
         message = await bot.send_photo(
             chat_id=config.CHANNEL_ID, photo=image_url,
             caption=safe, parse_mode="HTML",
+            **reply_kwargs,
         )
         return message.message_id
 
@@ -178,6 +198,7 @@ async def send_photo(image_url: str, caption_html: str) -> int:
         )
         message = await bot.send_photo(
             chat_id=config.CHANNEL_ID, photo=image_url, caption=plain,
+            **reply_kwargs,
         )
         return message.message_id
 

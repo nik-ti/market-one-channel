@@ -146,8 +146,13 @@ def check_limits() -> tuple[bool, str]:
 
 
 # --- The node's entry point ---
-async def execute(item, post_html: str, post_id: int) -> bool:
+async def execute(item, post_html: str, post_id: int,
+                  reply_to_message_id: int | None = None) -> bool:
     """Send one approved post to the channel. True if it arrived.
+
+    Args:
+        reply_to_message_id: if set, Telegram renders this post as a reply to
+                             that earlier message. Used for continuations.
 
     Failures are counted on the post row. After enough of them the post is
     marked failed and you get an alert, rather than it being retried forever.
@@ -172,7 +177,10 @@ async def execute(item, post_html: str, post_id: int) -> bool:
                 db.bump_counter("image_dropped_too_long")
             else:
                 try:
-                    message_id = await telegram_client.send_photo(image_url, message)
+                    message_id = await telegram_client.send_photo(
+                        image_url, message,
+                        reply_to_message_id=reply_to_message_id,
+                    )
                 except Exception as error:  # noqa: BLE001
                     # Telegram fetches images itself and sometimes cannot reach
                     # one. Never lose a post over a picture.
@@ -182,7 +190,10 @@ async def execute(item, post_html: str, post_id: int) -> bool:
 
         # --- As text, either by choice or as the fallback ---
         if message_id is None:
-            message_id = await telegram_client.send_text(message)
+            message_id = await telegram_client.send_text(
+                message,
+                reply_to_message_id=reply_to_message_id,
+            )
 
         db.mark_post_sent(post_id, message_id, telegram_client.build_post_url(message_id))
         db.set_item_status(item["id"], "published", f"sent as message {message_id}")

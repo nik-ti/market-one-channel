@@ -39,3 +39,8 @@ numpy>=1.26
 
 # Reads the .env file so secrets stay out of the code.
 python-dotenv>=1.0
+
+# The editorial "brain" — turns the hand-written publish loop into an explicit
+# workflow graph (brain/graph.py). Only the graph engine is used; model calls
+# still go through utils/openrouter.py.
+langgraph>=1.0

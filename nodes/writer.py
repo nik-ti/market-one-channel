@@ -464,14 +464,24 @@ def is_brief(item) -> bool:
     return item["origin"] == "x" and has_thin_source(item)
 
 
-async def execute(item, has_image: bool = False) -> str:
+async def execute(item, has_image: bool = False, editor_feedback: str = "",
+                  recent_posts: list[str] | None = None, persona: str = "") -> str:
     """Write the post for one item.
 
     Returns the finished Telegram HTML, or an EMPTY STRING if something went
     wrong. An empty string means "leave this item alone and try again next
     cycle" — never "publish nothing". The caller counts attempts and eventually
     gives up on the item rather than retrying forever.
+
+    `editor_feedback` is set by the brain's rewrite loop: the editor rejected
+    the first draft for a fixable reason, and this is that reason. The model is
+    told to fix exactly that and nothing else.
+
+    `recent_posts` is a short list of recent published posts the writer can
+    use as voice examples — it should imitate their tone and rhythm, not repeat
+    their facts. `persona` is the full persona markdown from brain/persona.md.
     """
+
     title = item["title"] or ""
     body = (item["body"] or "")[: config.MAX_BODY_CHARS]
     origin = "a post on X" if item["origin"] == "x" else "a news article"
@@ -482,6 +492,15 @@ async def execute(item, has_image: bool = False) -> str:
         f"Headline: {title}\n\n"
         f"Text:\n{body}"
     )
+
+    if editor_feedback:
+        user_message += (
+            f"\n\n---\nREWRITE REQUEST\n"
+            f"The channel editor rejected your previous draft of this post for "
+            f"this specific reason: {editor_feedback}\n"
+            f"Write the post again, fixing exactly that problem. Do not change "
+            f"anything else about how you follow the rules above."
+        )
 
     # LENGTH follows how much source material exists; LOOK follows where it came
     # from. Those are separate questions and were briefly conflated, with a real
@@ -499,6 +518,23 @@ async def execute(item, has_image: bool = False) -> str:
         length_rule = LENGTH_RULE_TEXT
 
     system_prompt = PROMPT.format(length_rule=length_rule, emoji_rule=EMOJI_RULE)
+
+    # If a persona is configured, prepend it. It describes the channel's voice
+    # and attitude; the factual-accuracy rules above still apply and override
+    # any conflicting instruction.
+    if persona.strip():
+        system_prompt = f"{persona}\n\n---\n\n{system_prompt}"
+
+    # Add recent posts as voice examples, but explicitly fence them off so the
+    # model does not confuse their facts with the current source.
+    if recent_posts:
+        examples = "\n\n".join(
+            f"Example {i + 1}:\n{p}" for i, p in enumerate(recent_posts[:10])
+        )
+        system_prompt += (
+            f"\n\n---\nRECENT CHANNEL POSTS (voice examples only — DO NOT repeat their facts):\n\n"
+            f"{examples}"
+        )
 
     try:
         raw = await openrouter.chat_text(
@@ -534,6 +570,154 @@ async def execute(item, has_image: bool = False) -> str:
         # these before sending. Worth logging so a persistently misbehaving
         # model shows up rather than being silently patched over.
         log.info("Writer used tags Telegram doesn't allow %s on item %s — "
+                 "they will be stripped before sending", forbidden, item["id"])
+
+    return post
+
+
+# --- Continuation writer -----------------------------------------------------
+# Used by the brain when the three-way judge says a new item is a genuine
+# continuation of a story we already covered. The result is sent as a Telegram
+# reply to the original post, so it must not repeat the parent's facts.
+
+CONTINUATION_PROMPT = """You write short continuation updates for a Telegram news channel.
+
+This item is a follow-up to a story the channel has already posted. The
+original post is shown below for context ONLY. Your job is to write the NEW
+information in the source — what has changed or what has been confirmed.
+
+## Core Rule
+Write ONLY what is new. Do not repeat facts that already appeared in the
+original post. The reader has seen the original; this update adds to it.
+
+If the new item mostly restates the old one with no material change, say so by
+returning an empty post: just the words "no new facts" and nothing else.
+
+## Style and Format
+* Start with the new fact directly. Do not use a generic opener like "Update:" or
+  "In a follow-up:" unless the source itself uses that framing.
+* Keep the same plain, factual tone as the main channel posts.
+* First line: the headline wrapped in <b>...</b>.
+* Then a blank line, then the new development.
+* Length: {length_rule}
+* {emoji_rule}
+* No hashtags. No source link — the system adds the link.
+
+## Factual Accuracy
+Same rules as the main channel: never strengthen a hedge, never add a number
+or name not in the source, keep attributions, "could" stays "could",
+"proposed" stays "proposed".
+
+## Do not add
+No hashtags. No source link. No channel name. No sign-off.
+
+## Example of a good continuation
+Original post:
+<b>Ukrainian drones halt loading at Novorossiysk oil terminal</b>
+
+Exports from Russia's largest Black Sea crude terminal stopped on Tuesday after
+an overnight drone attack. The port handles about 2% of global seaborne crude.
+
+Source update:
+<b>Operator confirms Novorossiysk loading remains suspended</b>
+
+The port operator said crude loading has not resumed and gave no restart date.
+The terminal handled roughly 2% of global seaborne crude before the halt.
+
+---
+Now write the continuation for the source update below."""
+
+
+async def execute_continuation(item, *, parent_post_html: str,
+                               has_image: bool = False,
+                               editor_feedback: str = "",
+                               recent_posts: list[str] | None = None,
+                               persona: str = "") -> str:
+    """Write a continuation that adds new facts to an already-published post.
+
+    Returns the finished Telegram HTML, or an empty string if nothing usable
+    is left. An empty string means "leave this item for retry".
+
+    `recent_posts` and `persona` work exactly as in execute(): voice context,
+    not facts to repeat.
+    """
+    title = item["title"] or ""
+    body = (item["body"] or "")[: config.MAX_BODY_CHARS]
+    origin = "a post on X" if item["origin"] == "x" else "a news article"
+
+    user_message = (
+        f"Source: {item['source_name']} ({origin})\n"
+        f"Topic: {item['topic'] or item['topic_hint']}\n\n"
+        f"Headline: {title}\n\n"
+        f"Original post (already published on the channel):\n"
+        f"{parent_post_html}\n\n"
+        f"Source update:\n{body}"
+    )
+
+    if editor_feedback:
+        user_message += (
+            f"\n\n---\nREWRITE REQUEST\n"
+            f"The channel editor rejected your previous draft of this continuation "
+            f"for this specific reason: {editor_feedback}\n"
+            f"Write the continuation again, fixing exactly that problem. Do not "
+            f"repeat facts from the original post."
+        )
+
+    if has_thin_source(item):
+        length_rule = LENGTH_RULE_BRIEF
+    elif has_image:
+        length_rule = LENGTH_RULE_IMAGE
+    else:
+        length_rule = LENGTH_RULE_TEXT
+
+    system_prompt = CONTINUATION_PROMPT.format(length_rule=length_rule,
+                                               emoji_rule=EMOJI_RULE)
+
+    if persona.strip():
+        system_prompt = f"{persona}\n\n---\n\n{system_prompt}"
+
+    if recent_posts:
+        examples = "\n\n".join(
+            f"Example {i + 1}:\n{p}" for i, p in enumerate(recent_posts[:10])
+        )
+        system_prompt += (
+            f"\n\n---\nRECENT CHANNEL POSTS (voice examples only — DO NOT repeat their facts):\n\n"
+            f"{examples}"
+        )
+
+    try:
+        raw = await openrouter.chat_text(
+            model=MODEL, system=system_prompt, user=user_message,
+            temperature=TEMPERATURE, max_tokens=MAX_TOKENS,
+        )
+    except Exception as error:  # noqa: BLE001
+        log.warning("Continuation writer failed for item %s: %s", item["id"], error)
+        return ""
+
+    post = _clean(raw)
+
+    if not post:
+        log.warning("Continuation writer returned nothing for item %s", item["id"])
+        return ""
+
+    # The "no new facts" sentinel lets the model bail out gracefully.
+    if post.lower().strip() == "no new facts":
+        log.info("Continuation writer decided item %s has no new facts", item["id"])
+        return ""
+
+    before = post
+    post = strip_emojis(post)
+    if post != before:
+        log.info("Removed emoji(s) the continuation writer added to item %s", item["id"])
+
+    if _looks_incomplete(post):
+        log.warning("Continuation writer produced a post that stops mid-sentence "
+                    "for item %s — discarding it", item["id"])
+        return ""
+
+    forbidden = _has_forbidden_tags(post)
+    if forbidden:
+        log.info("Continuation writer used tags Telegram doesn't allow %s on item %s — "
                  "they will be stripped before sending", forbidden, item["id"])
 
     return post

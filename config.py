@@ -253,6 +253,18 @@ EDITOR_MODEL = _get("EDITOR_MODEL", "minimax/minimax-m2.7")
 EDITOR_DECLINE_ALERT_RATE = _get_float("EDITOR_DECLINE_ALERT_RATE", 0.5)
 EDITOR_DECLINE_WINDOW = _get_int("EDITOR_DECLINE_WINDOW", 20)
 
+# The brain's rewrite loop: when the editor rejects a post for a FIXABLE rule
+# (see FIXABLE_RULES in brain/nodes.py), the draft goes back to the writer once
+# with the rejection reason, instead of the post being dropped on the spot.
+# Capped low on purpose — each loop costs another writer + editor call, and a
+# post that needs a third draft was never going to make it.
+MAX_REWRITES = _get_int("MAX_REWRITES", 1)
+
+# Continuations of already-published stories may publish with a lower importance
+# bar than new stories, because the parent story was already vetted. New
+# stories still need MIN_IMPORTANCE.
+CONTINUATION_MIN_IMPORTANCE = _get_int("CONTINUATION_MIN_IMPORTANCE", 3)
+
 # 4. Duplicate check number 5: given two stories that LOOK alike, decide whether
 # they are the same event. This is the only step that can tell "ETF inflows"
 # from "ETF outflows", so it is worth choosing carefully.
@@ -294,6 +306,21 @@ JUDGE_MODEL = _get("JUDGE_MODEL", "deepseek/deepseek-v3.2")
 # gets published, so the extra headroom is worth more than the wait: this runs
 # inside the 120-second publish tick, which posts at most 2 items anyway.
 JUDGE_TIMEOUT_SECONDS = _get_int("JUDGE_TIMEOUT_SECONDS", 40)
+
+
+# =============================================================================
+# BRAIN / PERSONA
+# =============================================================================
+
+# Where the channel's voice lives. The file is plain markdown; the writer prepends
+# it to its system prompt. If the file is missing, the writer falls back to its
+# built-in generic prompt so nothing breaks before the persona is ready.
+PERSONA_PATH = HERE / "brain" / "persona.md"
+
+# How many recent published posts the writer sees as voice examples. More
+# context gives more consistency but costs slightly more per call. 15 is a
+# sweet spot: enough to catch rhythm, not enough to bloat the prompt.
+PERSONA_RECENT_POSTS = _get_int("PERSONA_RECENT_POSTS", 15)
 
 
 # =============================================================================
