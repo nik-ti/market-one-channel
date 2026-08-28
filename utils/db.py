@@ -172,10 +172,8 @@ def sync_sources(sources: Iterable[dict]) -> None:
 def drop_unfollowed_x_items(handles: Iterable[str]) -> int:
     """Throw away queued tweets from X accounts we no longer follow.
 
-    Same reasoning as the source cleanup above. Taking a handle out of
-    config.X_ACCOUNTS stops NEW tweets from it being stored, but anything
-    already queued would carry on to the channel — so a handle you removed this
-    morning could still be posting this afternoon.
+    Removing a handle stops new tweets being stored, but anything already queued
+    would carry on posting hours later.
     """
     followed = set(handles)
     rows = conn().execute(
@@ -261,12 +259,10 @@ def insert_item(
     status: str = "queued",
     status_reason: str = "",
 ) -> int | None:
-    """Store a newly-arrived item. Returns its id, or None if we already had it.
+    """Store a new item. Returns its id, or None if we already had it.
 
-    The "already had it" case is duplicate check number 1 and it is by far the
-    most common outcome: re-reading a feed hands back the same articles every
-    time. The database's UNIQUE rule rejects them for free, so this returning
-    None is completely normal and not an error.
+    None is duplicate check 1 and by far the most common outcome — re-reading a
+    feed hands back the same articles. Normal, not an error.
     """
     try:
         cursor = conn().execute(
@@ -292,11 +288,9 @@ def insert_item(
 
 
 def title_hash_seen(title_hash: str, hours: int) -> sqlite3.Row | None:
-    """Find an earlier item with the same headline fingerprint, if any.
+    """Check 2: an earlier item with the same headline fingerprint.
 
-    This is duplicate check number 2. It catches the same story arriving at a
-    different address — syndication, a changed link, or a feed that reissues the
-    same article under a new URL.
+    Catches one story arriving at two addresses — syndication, a changed link.
     """
     if not title_hash:
         return None
@@ -312,11 +306,7 @@ def title_hash_seen(title_hash: str, hours: int) -> sqlite3.Row | None:
 
 
 def recent_titles(hours: int, exclude_item_id: int | None = None) -> list[tuple[int, str]]:
-    """Return (id, normalised headline) for items seen recently.
-
-    Feeds duplicate check number 3, the "is this a reworded version of something
-    we already covered?" test.
-    """
+    """Check 3: (id, normalised headline) for items seen recently."""
     rows = conn().execute(
         f"""
         SELECT id, norm_title FROM items
@@ -336,23 +326,13 @@ def recent_embeddings(
     near_time: str | None = None,
     max_gap_hours: int | None = None,
 ) -> list[tuple[int, bytes]]:
-    """Return (id, meaning-vector) for items we have already made sense of.
+    """Return (id, meaning-vector) for items already made sense of. Feeds check 4.
 
-    Feeds duplicate check number 4 — the one that can tell a tweet and a news
-    article are about the same event even when they share almost no words.
-
-    THE TIME GATE (near_time + max_gap_hours)
-        Two items can only report the same event if they turned up at roughly
-        the same time. Passing the new item's own fetched_at as `near_time`
-        drops everything that arrived more than `max_gap_hours` either side of
-        it, before any comparison happens.
-
-        This is not a performance trick, it is an accuracy fix. Recurring
-        reports — daily ETF flows, weekly roundups, "markets wiped out today" —
-        are almost word-for-word identical from one day to the next, so they
-        score extremely highly. Yesterday's edition is the single most dangerous
-        thing in the candidate pool, and the cheapest way to deal with it is to
-        refuse to look at it. See config.DUPLICATE_MAX_GAP_HOURS.
+    THE TIME GATE (near_time + max_gap_hours) is an accuracy fix, not a
+    performance trick. Recurring reports — daily ETF flows, weekly roundups —
+    are near-identical day to day and score extremely highly, so yesterday's
+    edition is the most dangerous thing in the pool. The cheapest answer is to
+    refuse to look at it.
     """
     where = [
         "embedding IS NOT NULL",
@@ -383,8 +363,8 @@ def set_item_embedding(item_id: int, blob: bytes) -> None:
 def set_item_status(item_id: int, status: str, reason: str = "") -> None:
     """Move an item to a new stage, always recording why.
 
-    The reason is not optional in spirit: an item that vanished with no
-    explanation is the exact failure this project is built to avoid.
+    An item that vanished with no explanation is the failure this project is
+    built to avoid, so the reason is not optional in spirit.
     """
     conn().execute(
         "UPDATE items SET status = ?, status_reason = ?, updated_at = ? WHERE id = ?",
@@ -395,11 +375,8 @@ def set_item_status(item_id: int, status: str, reason: str = "") -> None:
 
 def set_item_sorting(item_id: int, topic: str, importance: int,
                      market: str = "") -> None:
-    """Record what the AI decided an item is about and how much it matters.
-
-    `market` is the market the sorter said has to reprice, or 'none'. It is
-    stored for every item, including the ones that get dropped — that is what
-    makes tools/stats.py --dropped able to show you why the gate binned things.
+    """Record what the sorter decided. `market` is stored even for dropped items,
+    which is what lets tools/stats.py --dropped show why the gate binned them.
     """
     conn().execute(
         "UPDATE items SET topic = ?, importance = ?, market = ?, updated_at = ? "
@@ -426,12 +403,10 @@ def get_item(item_id: int) -> sqlite3.Row | None:
 
 
 def next_queued_items(limit: int) -> list[sqlite3.Row]:
-    """Return the items most deserving of being posted next.
+    """The items most deserving of being posted next: importance, then newest.
 
-    Ordered by importance first, then newest — so when more news arrives than we
-    are allowed to post, the best and freshest wins and the rest eventually go
-    stale. For news that is the right behaviour: an old "breaking" story is worse
-    than no story.
+    When more news arrives than we can post, the best and freshest wins and the
+    rest go stale. An old "breaking" story is worse than no story.
     """
     return list(conn().execute(
         """

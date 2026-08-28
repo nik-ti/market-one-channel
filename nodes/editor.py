@@ -100,18 +100,14 @@ One plain sentence. If you rejected the post, quote the specific words that brok
 
 Answer with JSON only."""
 
-# A separate, much narrower prompt for posts that were NOT written by an AI.
+# A much narrower prompt for posts NOT written by a model. A verbatim tweet
+# cannot drift from its source because it IS its source, and judging it on the
+# full rule set would reject most of them for HYPE — capitals and sirens are
+# simply how these accounts talk. Only real regrets are left: unsafe content,
+# no news at all, or a manipulation attempt.
 #
-# Tweets are published as-is, so most of the rules above are meaningless for
-# them: the post cannot drift from its source because it IS its source, and it
-# cannot be too long or badly formatted because the system built it. Judging a
-# verbatim tweet with the full rule set would reject a great many of them for
-# HYPE, since these accounts write in capitals with sirens — that is simply how
-# they talk, and it is not a reason to bin real news.
-#
-# What still matters is what a passed-through tweet could put on the channel
-# that we would regret: something unsafe, something that is not news at all, or
-# a manipulation attempt aimed at our readers.
+# Unused since tweets started going through the writer, but kept for the
+# verbatim=True path.
 PROMPT_VERBATIM = """You are the final safety check on a news channel.
 
 The post below is a social media post republished WORD FOR WORD. Nobody rewrote it. Your job is NOT to judge its wording, style, tone, capitalisation, or punctuation — all of that is the original author's and is being reproduced deliberately.
@@ -139,8 +135,7 @@ One plain sentence. If you rejected it, say exactly which of the four reasons ap
 
 Answer with JSON only."""
 
-# "strict" mode makes the provider enforce this shape, which is what guarantees
-# the model cannot invent a rejection reason outside the list above.
+# Strict mode is what guarantees the model cannot invent a rejection reason.
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -158,11 +153,10 @@ SCHEMA = {
 
 
 def _check_calibration() -> None:
-    """Send a Telegram warning if the rejection rate has gone through the roof.
+    """Warn if the rejection rate has gone through the roof.
 
-    A high rejection rate usually means the editor is misjudging, not that the
-    news suddenly got worse. This is the alarm that would have caught the
-    nmd_consulting failure in a day instead of never.
+    A high rate usually means the editor is misjudging, not that the news got
+    worse. This is the alarm that would have caught nmd_consulting in a day.
     """
     rate, sample_size = db.recent_decline_rate(config.EDITOR_DECLINE_WINDOW)
 
@@ -185,29 +179,12 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
                   verbatim: bool = False, attempt: int = 1) -> dict:
     """Judge one finished post. Records the decision either way.
 
-    Args:
-        item:      the row this post was written from.
-        post_html: the finished post.
-        post_id:   which post row this belongs to.
-        verbatim:  True when the post is a republished tweet rather than
-                   AI-written prose. Switches to the narrow safety-only rule
-                   set — see PROMPT_VERBATIM above for why.
-        record:    write the decision to the audit log. Only tools/dry_run.py
-                   sets this to False, so that rehearsing on real items doesn't
-                   distort the real rejection statistics.
-        attempt:   which draft this is. The brain's rewrite loop re-judges a
-                   rewritten post with attempt=2, so the audit log can tell a
-                   first-pass verdict from a rewrite verdict.
+    Returns {approved, rules_broken, reason, confidence, error}. On error,
+    approved is False — nothing is published without a verdict.
 
-    Returns a dictionary with:
-        approved     (bool)  may this be published
-        rules_broken (list)  which rules it broke, if any
-        reason       (str)   one sentence
-        confidence   (float) 0.0 to 1.0
-        error        (bool)  True if the editor could not be reached at all
-
-    On error, approved is False and error is True — the caller leaves the post
-    alone and tries again later. Nothing is published without a verdict.
+    `verbatim` switches to the narrow safety-only rule set. `record=False` keeps
+    a rehearsal out of the real rejection statistics. `attempt` lets the audit
+    log tell a first-pass verdict from a rewrite verdict.
     """
     source_text = (item["body"] or "")[:1500]
     started = time.monotonic()
@@ -244,10 +221,9 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
     reason = str(result.get("reason", ""))[:500]
     confidence = float(result.get("confidence", 0.0))
 
-    # SAFEGUARD 1: a rejection must name a rule.
-    # If the model says "decline" but lists no rule, it has rejected the post on
-    # a feeling. We overrule it and publish. This is the single most important
-    # line in this file — it makes a vague rejection structurally impossible.
+    # SAFEGUARD 1: a rejection must name a rule. "Decline" with no rule is a
+    # rejection on a feeling, so we overrule it and publish. This is the most
+    # important line in the file — it makes a vague rejection impossible.
     if verdict == "decline" and not rules_broken:
         log.warning("Editor rejected post %s without naming a rule — overruling it "
                     "and approving. Its stated reason was: %s", post_id, reason)

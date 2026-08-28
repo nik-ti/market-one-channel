@@ -31,12 +31,9 @@ from utils import db, logger as log_setup, openrouter
 log = log_setup.get("judge")
 
 
-# ============================================================================
-# THE BINARY PROMPT (kept for backwards compatibility with tools/check_dedup.py)
-# ============================================================================
-# Written against the cases that actually went wrong. The "NOT the same event"
-# list is not padding — every line is a real pair this channel got wrong or
-# nearly got wrong, and removing one will bring that failure back.
+# --- The binary prompt (kept for tools/check_dedup.py) ---
+# Every line of the "NOT the same event" list is a real pair this channel got
+# wrong or nearly got wrong. Removing one brings that failure back.
 
 SYSTEM = """You decide whether two news items report THE SAME SPECIFIC EVENT.
 
@@ -72,9 +69,7 @@ SCHEMA = {
 }
 
 
-# ============================================================================
-# THE THREE-WAY PROMPT (used by the brain to detect continuations)
-# ============================================================================
+# --- The three-way prompt (used by the brain to detect continuations) ---
 # Same judge, but now it also distinguishes "this is a new development of a
 # story we are already covering" from "this is a completely different story".
 # That distinction is what lets the channel thread developing events instead of
@@ -135,9 +130,8 @@ SCHEMA_THREE_WAY = {
 def _describe(item, when: str) -> str:
     """Render one item for the prompt.
 
-    The timestamp is included deliberately. Several of the hardest pairs are
-    recurring reports that differ ONLY by date, and the model cannot see that
-    unless we tell it.
+    The timestamp is deliberate: the hardest pairs are recurring reports that
+    differ ONLY by date, which the model cannot see unless told.
     """
     title = (item["title"] or "").strip()
     body = (item["body"] or "").strip()[:300]
@@ -185,14 +179,10 @@ async def _judge(item, candidate, *, system: str, schema: dict,
 
 
 async def execute(item, candidate) -> tuple[bool | None, str]:
-    """Rule on one pair. Returns (same_event, reason).
+    """Rule on one pair. Returns (same_event, reason); None means no answer.
 
-    same_event is None when we could not get an answer — the caller treats that
-    as "not a duplicate" and posts. See "WHICH WAY IT FAILS" above.
-
-    A verdict of "continuation" is treated as NOT a duplicate here, because
-    this function answers the dedup question. Continuations are picked up by
-    the brain in brain/nodes.py via execute_three_way.
+    "continuation" counts as NOT a duplicate here — the brain picks those up
+    via execute_three_way.
     """
     answer = await _judge(item, candidate, system=SYSTEM, schema=SCHEMA,
                           schema_name="same_event")
@@ -213,15 +203,9 @@ async def execute(item, candidate) -> tuple[bool | None, str]:
 
 
 async def execute_three_way(item, candidate) -> tuple[str | None, str]:
-    """Classify a pair's relationship for the brain.
+    """Classify a pair for the brain: same_event | continuation | different.
 
-    Returns (verdict, reason). Verdict is one of:
-        "same_event"   → drop as a duplicate
-        "continuation" → a genuine new development; reply to the older post
-        "different"    → unrelated or different happening; treat as a new story
-
-    Returns (None, reason) when the judge cannot be reached — callers must fail
-    open (treat as "different" so the story at least gets considered).
+    (None, reason) when the judge cannot be reached — callers must fail open.
     """
     answer = await _judge(item, candidate, system=SYSTEM_THREE_WAY,
                           schema=SCHEMA_THREE_WAY, schema_name="relationship")
@@ -242,20 +226,14 @@ async def execute_three_way(item, candidate) -> tuple[str | None, str]:
     return verdict, reason
 
 
-# --- Sanity check: is the judge stable when the items are shown in reverse order?
-# This matters because a judge that flips its answer depending on argument order
-# will produce unreproducible bugs: the same two stories merge on Monday and not
-# on Tuesday. The original config.py comment caught this on a real model.
+# A judge that flips its answer with argument order produces unreproducible
+# bugs: the same pair merges on Monday and not on Tuesday.
 async def test_order_stability(pairs: list[tuple[dict, dict, str]],
                                description: str = "") -> dict:
     """Run execute_three_way on each pair both ways and report any flips.
 
-    Args:
-        pairs: list of (newer_item, older_item, expected_verdict).
-        description: optional label for the report.
-
-    Returns a dict with mismatches and the raw verdicts. Safe to call with real
-    pairs from the channel's history before trusting the new prompt live.
+    Safe to call with real pairs from the channel's history before trusting a
+    new prompt live.
     """
     results = {
         "description": description,

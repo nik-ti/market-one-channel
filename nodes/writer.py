@@ -201,8 +201,7 @@ _PREAMBLE = re.compile(
     re.IGNORECASE,
 )
 
-# A finished sentence ends with one of these. Used to spot a post that was cut
-# off in the middle.
+# Used to spot a post that was cut off in the middle.
 _SENTENCE_ENDS = (".", "!", "?", '"', "'", ")", "”", "’", ">")
 
 # Tags Telegram accepts. Anything else makes it reject the entire message.
@@ -226,8 +225,7 @@ def _clean(text: str) -> str:
 def _looks_incomplete(text: str) -> bool:
     """True if the post appears to have been cut off mid-sentence.
 
-    A post that stops halfway is worse than no post, and it is not obvious from
-    the model's own reply that it happened — so we check the text itself.
+    The model's reply gives no sign this happened, so we check the text.
     """
     stripped = text.rstrip()
     if not stripped:
@@ -245,10 +243,8 @@ def _has_forbidden_tags(text: str) -> list[str]:
     return sorted({tag.lower() for tag in found if tag.lower() not in _ALLOWED_TAGS})
 
 
-# --- The node's entry point ---
-# Everything in the emoji blocks, plus the joiners and variation selectors that
-# glue multi-part emoji together. Deliberately narrow: it must not touch
-# accented letters, currency symbols, dashes or quotation marks.
+# Deliberately narrow: it must not touch accented letters, currency symbols,
+# dashes or quotation marks.
 _EMOJI = re.compile(
     "[\U0001F000-\U0001FAFF"     # pictographs, symbols, flags, transport
     "☀-➿"              # miscellaneous symbols and dingbats
@@ -260,12 +256,11 @@ _EMOJI = re.compile(
 
 
 def strip_emojis(text: str) -> str:
-    """Remove every emoji, then tidy up the gaps they leave behind.
+    """Remove every emoji and tidy up the gaps.
 
-    The tidying is fiddlier than it looks. Removing the ⚡ from "attack ⚡." must
-    leave "attack." not "attack .", and removing it from "<b>Oil ⚡</b>" must
-    leave "<b>Oil</b>". But the ordinary space in "</b> costs" has to survive —
-    an earlier version of this ate it and ran the words together.
+    Fiddlier than it looks: "attack ⚡." must become "attack." not "attack .",
+    but the ordinary space in "</b> costs" has to survive — an earlier version
+    ate it and ran the words together.
     """
     cleaned = _EMOJI.sub("", text or "")
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)            # "a  b"   -> "a b"
@@ -275,24 +270,17 @@ def strip_emojis(text: str) -> str:
     return cleaned.strip()
 
 
-# Some marks are written with a trailing variation selector (⚖️) and some
-# without (⚖). Models produce both, so we accept either and always store the
+# Models write ⚖️ and ⚖ interchangeably, so accept either and store the
 # canonical form from config.
 _VARIATION_SELECTOR = "️"
 
 
 def enforce_mark(text: str) -> tuple[str, str]:
-    """Keep one approved mark at the front; remove every other emoji.
+    """Keep one approved leading mark; remove every other emoji.
 
-    Returns (text, mark) — mark is "" when the post carries none, which is the
-    normal case and not a problem.
-
-    The prompt asks for at most one mark from config.POST_MARKS at the very
-    start. This is the part that does not depend on the model doing as it is
-    told: a second mark, a 🔥, a flag halfway through a sentence, anything not
-    on the list — all of it is stripped exactly as it always was. The single
-    difference from the old blanket strip is that ONE approved leading mark now
-    survives.
+    Returns (text, mark); an empty mark is the normal case. This is the part
+    that does not depend on the model complying — a second mark, a 🔥, a flag
+    mid-sentence, anything off the list, all stripped.
     """
     text = (text or "").lstrip()
 
@@ -312,46 +300,34 @@ def enforce_mark(text: str) -> tuple[str, str]:
     return (f"{mark} {cleaned}" if mark else cleaned), mark
 
 
-# These two questions look like one question, but they are not, and keeping them
-# apart matters. See the note in execute() below.
-
 def has_thin_source(item) -> bool:
-    """True if there is barely any source material — a couple of sentences.
+    """True if there is barely any source material.
 
-    Decides HOW LONG the post may be. Applies to any source, X or feed: you
-    cannot honestly write 90 words from a 150-character summary no matter where
-    it came from.
+    Decides HOW LONG the post may be, for any source: you cannot honestly write
+    90 words from a 150-character summary wherever it came from.
     """
     return len((item["body"] or "").strip()) < config.BRIEF_SOURCE_CHARS
 
 
-# Links inside a tweet — always shorteners, and never anything we want to keep.
-# The system adds the one real link itself.
+# Always shorteners. The system adds the one real link itself.
 _URL = re.compile(r"https?://\S+")
 
-# "JUST IN:", "BREAKING:" and friends. The ⚡ already says this is a flash, so
-# the words are redundant.
+# "JUST IN:", "BREAKING:" and friends.
 _ALERT_PREFIX = re.compile(
     r"^\s*(breaking|just in|update|urgent|alert|news|developing)\s*[:\-–—]\s*",
     re.IGNORECASE,
 )
 
 
-# A finished sentence ends with one of these.
-#
-# A COLON IS NOT ON THIS LIST, and used not to be missing from it. See the
-# length guard in _trim_to_last_sentence for what that cost.
+# A COLON IS DELIBERATELY ABSENT — see _trim_to_last_sentence for what its
+# presence once cost.
 _SENTENCE_END = (".", "!", "?", '"', "”", ")")
 
-# X hands the API roughly 280 characters of a long post and a link to the rest.
-# A tweet shorter than this was never truncated, so there is nothing to trim
-# back to — whatever punctuation it does or does not end with.
+# X hands the API ~280 characters of a long post. Anything shorter was never
+# truncated, so there is nothing to trim back to.
 X_TRUNCATION_CHARS = 250
 
-# The shortest visible text we will publish as a post on its own. Below this
-# there is not enough left to be news, and the caller falls back to the writer.
-# "Fed holds rates steady" is 22 characters, so this is genuinely a floor and
-# not a length preference.
+# A floor, not a preference: "Fed holds rates steady" is 22 characters.
 MIN_PASSTHROUGH_CHARS = 20
 
 _TAGS = re.compile(r"<[^>]+>")
@@ -365,36 +341,15 @@ def _visible_length(html: str) -> int:
 def _trim_to_last_sentence(text: str) -> str:
     """Cut a truncated tweet back to its last COMPLETE sentence.
 
-    This exists because X itself truncates long posts. It hands the API roughly
-    280 characters and a link to the rest, so the stored text routinely ends
-    mid-sentence:
+    X hands the API ~280 characters of a long post, so stored text routinely
+    ends mid-sentence. Returns "" if nothing complete survives.
 
-        "...if Congress fails to pass the Clarity Act.
-         He stressed, however, that a statute https://t.co/lh61Xd4rFg"
-
-    Publishing that verbatim would put a half-sentence on the channel. Since we
-    cannot fetch the rest, we drop the incomplete tail and keep what is whole.
-    Returns "" if nothing complete survives.
-
-    ONLY CALL THIS ON A TWEET LONG ENOUGH TO HAVE BEEN TRUNCATED.
-        This function assumes that text not ending in punctuation was cut off.
-        For a long tweet that is a good assumption. For a short one it is
-        completely wrong: these accounts write HEADLINES, and a headline has no
-        full stop.
-
-            "🚨 JUST IN: Bitcoin falls below $60,000"
-
-        That is a whole tweet. Nothing was truncated. But it does not end in
-        punctuation, so this function walked backwards looking for a sentence
-        ending — and because a colon used to count as one, it found the colon in
-        "JUST IN:" and returned "🚨 JUST IN:". The prefix stripper then removed
-        that too, leaving nothing at all.
-
-        Every headline-shaped tweet was destroyed this way, which is most of what
-        WatcherGuru and TreeNewsFeed publish. It was invisible because the caller
-        quietly fell back to the AI writer, so the posts still appeared — they
-        were just being rewritten by a model rather than passed through, which is
-        the exact risk passthrough() exists to avoid.
+    ONLY CALL THIS ON A TWEET LONG ENOUGH TO HAVE BEEN TRUNCATED. It assumes
+    text not ending in punctuation was cut off, which is wrong for a short one:
+    these accounts write HEADLINES, and a headline has no full stop. When a
+    colon still counted as a sentence ending, "🚨 JUST IN: Bitcoin falls below
+    $60,000" was trimmed to "🚨 JUST IN:" and then to nothing — destroying every
+    headline-shaped tweet, invisibly, because the caller fell back to the writer.
     """
     text = text.strip()
     if not text or text.endswith(_SENTENCE_END):
@@ -406,38 +361,23 @@ def _trim_to_last_sentence(text: str) -> str:
 
 
 def passthrough(item) -> str:
-    """Turn a tweet into a post WITHOUT involving an AI at all.
+    """Turn a tweet into a post without involving a model.
 
-    Tweets from these accounts are already short, factual and written for exactly
-    this purpose, so rewriting them added cost and risk without adding value —
-    the rewrite was the step that invented casualty figures during testing.
-    Passing the text through means the post cannot contain anything the source
-    did not say, because it IS the source.
+    CURRENTLY UNUSED: since 28 Aug 2026 every tweet goes through execute().
+    Kept as a fallback if rewriting tweets ever proves too risky again.
 
-    What this does, all of it mechanical:
-      * removes the t.co links (the system adds the real one)
-      * drops a redundant "JUST IN:" / "BREAKING:" prefix — the ⚡ says that
-      * bolds the first line, so it matches the channel's house format
-      * removes emoji, so the post carries only the one mark the publisher adds
-
-    That last one is worth being clear about, because these accounts write in
-    sirens and rockets and we are stripping their punctuation, not their words.
-    The tweet's FACTS are reproduced exactly; only the decoration goes, so a
-    republished tweet looks like everything else on the channel instead of
-    announcing which account it came from.
-
-    Returns an empty string if nothing usable is left, which tells the caller to
-    fall back to the AI writer rather than losing the story.
+    Purely mechanical: drop the t.co links and the "JUST IN:" prefix, bold the
+    first line, strip emoji. The facts are reproduced exactly because the post
+    IS the source — rewriting was the step that invented casualty figures during
+    testing. Returns "" if nothing usable is left.
     """
     raw = item["body"] or ""
     text = _URL.sub("", raw).strip()
     if not text:
         return ""
 
-    # X cuts long posts off mid-sentence — see _trim_to_last_sentence. Only a
-    # tweet long enough to have hit that limit can have been cut, so the trim is
-    # gated on the length of the ORIGINAL text, before the links came out. A
-    # headline tweet with no full stop is complete, not truncated.
+    # Gated on the length of the ORIGINAL text: only a tweet long enough to have
+    # hit X's limit can have been cut. A headline with no full stop is complete.
     if len(raw) >= X_TRUNCATION_CHARS:
         text = _trim_to_last_sentence(text)
         if not text:
@@ -455,9 +395,7 @@ def passthrough(item) -> str:
     if not lines:
         return ""
 
-    # Telegram would choke on a stray "<" from the tweet, and the sanitiser
-    # escapes it later — but we must escape BEFORE adding our own <b> tags, or
-    # the sanitiser would escape those too.
+    # Escape BEFORE adding our own <b> tags, or the sanitiser escapes those too.
     safe = [html.escape(ln) for ln in lines]
 
     headline, rest = safe[0], safe[1:]
@@ -465,10 +403,8 @@ def passthrough(item) -> str:
     if rest:
         post += "\n\n" + "\n".join(rest)
 
-    # Is there enough left to be a post? Measured on what a reader sees, not on
-    # the HTML — the <b></b> around a headline is 7 characters of tag that say
-    # nothing, and counting them once made a valid one-line tweet look too short
-    # to publish.
+    # Measured on what a reader sees: counting the <b></b> tags once made a
+    # valid one-line tweet look too short to publish.
     if _visible_length(post) < MIN_PASSTHROUGH_CHARS:
         return ""
 
@@ -476,15 +412,7 @@ def passthrough(item) -> str:
 
 
 def is_brief(item) -> bool:
-    """True if this is a short X post — the only thing that gets the ⚡ badge.
-
-    Decides WHICH mark the post carries: ⚡ instead of the topic emoji. Every
-    post carries exactly one either way. Requires BOTH a thin source AND that it
-    came from X.
-
-    A short RSS summary is still a proper article, so badging it as a flash alert
-    would tell the reader something untrue about where it came from.
-    """
+    """True if this is a short X post. Only used by the rehearsal tools now."""
     return item["origin"] == "x" and has_thin_source(item)
 
 
@@ -492,18 +420,12 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
                   recent_posts: list[str] | None = None, persona: str = "") -> str:
     """Write the post for one item.
 
-    Returns the finished Telegram HTML, or an EMPTY STRING if something went
-    wrong. An empty string means "leave this item alone and try again next
-    cycle" — never "publish nothing". The caller counts attempts and eventually
-    gives up on the item rather than retrying forever.
+    Returns the Telegram HTML, or an EMPTY STRING meaning "leave this item and
+    try again next cycle" — never "publish nothing".
 
-    `editor_feedback` is set by the brain's rewrite loop: the editor rejected
-    the first draft for a fixable reason, and this is that reason. The model is
-    told to fix exactly that and nothing else.
-
-    `recent_posts` is a short list of recent published posts the writer can
-    use as voice examples — it should imitate their tone and rhythm, not repeat
-    their facts. `persona` is the full persona markdown from brain/persona.md.
+    `editor_feedback` carries the rejection reason from the rewrite loop.
+    `recent_posts` are voice examples, not facts to reuse. `persona` is
+    brain/persona.md.
     """
 
     title = item["title"] or ""
@@ -526,12 +448,10 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
             f"anything else about how you follow the rules above."
         )
 
-    # LENGTH follows how much source material exists; LOOK follows where it came
-    # from. Those are separate questions and were briefly conflated, with a real
-    # cost: a 150-character Cointelegraph summary was sent down the 70-100 word
-    # path and the model padded it with an invented sentence about "organized
-    # crime rings" that appeared nowhere in the source. A thin source now gets a
-    # short post whether it came from X or a feed; only X posts get the ⚡.
+    # LENGTH follows how much source material exists, not where it came from.
+    # Conflating the two sent a 150-character summary down the 90-word path and
+    # the model padded it with an invented sentence about "organized crime
+    # rings" that was nowhere in the source.
     thin = has_thin_source(item)
 
     if thin:
@@ -543,14 +463,12 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
 
     system_prompt = PROMPT.format(length_rule=length_rule, emoji_rule=EMOJI_RULE)
 
-    # If a persona is configured, prepend it. It describes the channel's voice
-    # and attitude; the factual-accuracy rules above still apply and override
-    # any conflicting instruction.
+    # The persona describes voice only; the factual-accuracy rules above still
+    # override anything in it.
     if persona.strip():
         system_prompt = f"{persona}\n\n---\n\n{system_prompt}"
 
-    # Add recent posts as voice examples, but explicitly fence them off so the
-    # model does not confuse their facts with the current source.
+    # Fenced off explicitly, or the model reuses their facts.
     if recent_posts:
         examples = "\n\n".join(
             f"Example {i + 1}:\n{p}" for i, p in enumerate(recent_posts[:10])
@@ -575,9 +493,7 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
         log.warning("Writer returned nothing for item %s", item["id"])
         return ""
 
-    # A post carries at most one mark, from the approved list, at the front.
-    # Asking nicely in the prompt is not enough on its own; this is the part
-    # that actually guarantees it.
+    # Asking in the prompt is not enough; this is what guarantees it.
     before = post
     post, mark = enforce_mark(post)
     if post != before:
@@ -590,19 +506,17 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
 
     forbidden = _has_forbidden_tags(post)
     if forbidden:
-        # Not fatal: the sanitiser in utils/telegram_html.py will neutralise
-        # these before sending. Worth logging so a persistently misbehaving
-        # model shows up rather than being silently patched over.
+        # Not fatal — telegram_html neutralises them — but logged so a
+        # persistently misbehaving model shows up.
         log.info("Writer used tags Telegram doesn't allow %s on item %s — "
                  "they will be stripped before sending", forbidden, item["id"])
 
     return post
 
 
-# --- Continuation writer -----------------------------------------------------
-# Used by the brain when the three-way judge says a new item is a genuine
-# continuation of a story we already covered. The result is sent as a Telegram
-# reply to the original post, so it must not repeat the parent's facts.
+# --- Continuation writer ---
+# Sent as a Telegram reply to the original post, so it must not repeat the
+# parent's facts.
 
 CONTINUATION_PROMPT = """You write short continuation updates for a Telegram news channel.
 
@@ -657,13 +571,9 @@ async def execute_continuation(item, *, parent_post_html: str,
                                editor_feedback: str = "",
                                recent_posts: list[str] | None = None,
                                persona: str = "") -> str:
-    """Write a continuation that adds new facts to an already-published post.
+    """Write a continuation adding new facts to an already-published post.
 
-    Returns the finished Telegram HTML, or an empty string if nothing usable
-    is left. An empty string means "leave this item for retry".
-
-    `recent_posts` and `persona` work exactly as in execute(): voice context,
-    not facts to repeat.
+    Empty string means "leave this item for retry", as in execute().
     """
     title = item["title"] or ""
     body = (item["body"] or "")[: config.MAX_BODY_CHARS]

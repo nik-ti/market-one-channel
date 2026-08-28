@@ -1,36 +1,27 @@
 """Decides whether a story is one we have already covered.
 
-The same event reaches us several times over: CoinDesk writes it up,
-Cointelegraph writes it up, WatcherGuru tweets it. To a reader that is one
-story.
-
-FIVE CHECKS, CHEAPEST FIRST. An item only reaches a check if the ones above let
-it through.
+Five checks, cheapest first; an item only reaches one if the checks above let it
+through.
 
   1. same link or tweet       free      enforced by the database
   2. same headline            free      a fingerprint of the headline text
   3. nearly the same wording  ~1ms      "Fed holds rates" vs "Fed leaves rates"
-  4. the same subject         ~1 call   embeddings; the only check that can
-                                        match a tweet to an article. Draws up a
-                                        SHORTLIST — it does not decide.
-  5. the same event           ~1 call   reads both stories and rules. See judge.py
+  4. the same subject         ~1 call   embeddings — a SHORTLIST, not a verdict
+  5. the same event           ~1 call   reads both stories and rules. judge.py
 
-Step 4 used to decide on a single cutoff and was wrong in both directions at
-once — with only a headline to go on it tracks what a story is ABOUT, not what
-happened, and most of what this channel reads is short.
+Step 4 is only a shortlist because with a headline to go on it tracks what a
+story is ABOUT, not what happened, and most of what this channel reads is short.
 
-THE TIME GATE. Candidates more than DUPLICATE_MAX_GAP_HOURS from the new item
-are discarded before steps 4-5 run. Daily ETF flows and weekly roundups are
-near-identical from one edition to the next, so yesterday's is the most
-dangerous thing in the pool. Every real duplicate measured here arrived within
-10.1 hours; the worst false merges were 24 hours apart.
+THE TIME GATE discards candidates more than DUPLICATE_MAX_GAP_HOURS away before
+4-5 run: daily ETF flows are near-identical edition to edition, so yesterday's
+is the most dangerous thing in the pool. Every real duplicate measured here
+arrived within 10.1 hours; the worst false merges were 24 hours apart.
 
-IT FAILS OPEN. An unavailable meaning check lets the item through — a duplicate
-is a small embarrassment, a silent channel is worse. The editor does the
-opposite, deliberately. But failing open in silence is not fine: a dedup_hit row
-is only written on a MATCH, so "found nothing" and "the API was down" once
-produced identical evidence, and three tweets about one Fed decision went out
-within four minutes. Every failure is now counted, logged and alerted on.
+IT FAILS OPEN — a duplicate is a small embarrassment, a silent channel is worse.
+The editor does the opposite, deliberately. But a dedup_hit row is only written
+on a MATCH, so "found nothing" and "the API was down" once left identical
+evidence and three tweets about one Fed decision went out within four minutes.
+Every failure is now counted and alerted on.
 """
 
 from __future__ import annotations
@@ -42,25 +33,17 @@ from utils import db, logger as log_setup, textclean
 
 log = log_setup.get("dedup")
 
-# How many meaning checks have failed in a row. A single failure is a network
-# blip and not worth anyone's attention; a run of them means the check is off,
-# and every item since the run started went out unchecked.
+# A single failure is a network blip; a run of them means every item since went
+# out unchecked.
 _consecutive_meaning_failures = 0
 
-# Alert after this many in a row. Deliberately small: at one item every couple
-# of minutes, ten failures is roughly twenty minutes of a channel with no
-# duplicate detection at all, which is long enough to publish the same story
-# three times — and short enough that you hear about it the first time.
+# Small on purpose: ten failures is about twenty minutes with no duplicate
+# detection at all, long enough to publish one story three times.
 MEANING_FAILURE_ALERT_AFTER = 10
 
-# Log a NEAR MISS — two items that looked related but scored under the threshold
-# — when the score is at least this. Below it the pair is genuinely unrelated
-# and recording it would just be noise.
-#
-# This is what turns "check 4 caught nothing" into an answerable question. If
-# your channel carries the same story twice and the pair is sitting in this list
-# at 0.84 against a 0.86 threshold, you do not have a broken check — you have a
-# threshold two points too high, and now you can see that.
+# Log pairs that looked related but scored under the floor. This is what turns
+# "check 4 caught nothing" into an answerable question: a duplicate sitting here
+# at 0.716 against a 0.72 floor is a threshold problem, not a broken check.
 NEAR_MISS_FLOOR = 0.70
 
 
@@ -121,16 +104,9 @@ def check_headline(item_id: int, title: str, title_hash: str) -> bool:
 def check_wording(item_id: int, title: str, norm_title: str) -> bool:
     """True if this headline is a rewrite of one we handled in the last day.
 
-    Uses similarity scoring: how many single-character edits separate the two
-    headlines, as a percentage. Above FUZZY_THRESHOLD (92 by default) we call it
-    the same story.
-
-    The time window matters. A reworded headline shows up within hours. The same
-    wording appearing three weeks later is far more likely to be a genuine new
-    development, so we only look back a day.
-
-    Never raises: if the lookup fails we say "new" rather than risk silently
-    binning real news because of a database hiccup.
+    A reworded headline shows up within hours; the same wording three weeks
+    later is far more likely to be genuinely new, hence the window.
+    Never raises — a database hiccup must not silently bin real news.
     """
     if not norm_title:
         return False
@@ -155,11 +131,8 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
     matched_text, score = hit[0], hit[1]
     matched_id = lookup[matched_text]
 
-    # THE NUMBERS GUARD.
-    # Similarity scoring cannot tell "16 dead" becoming "17 dead" (same story,
-    # updated) from "Fed cuts 25bp" versus "Fed cuts 50bp" (two completely
-    # different events). Both score about 97%. Since only meaning separates
-    # them, and we do not have meaning at this step, we refuse to merge either.
+    # Scoring cannot tell "16 dead" -> "17 dead" from "Fed cuts 25bp" -> "50bp";
+    # both score ~97%. Without meaning at this step, refuse to merge either.
     if textclean.same_but_for_digits(norm_title, matched_text):
         db.log_dedup_hit(
             item_id=item_id, matched_item_id=matched_id, rung="fuzzy",
@@ -179,21 +152,11 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
 
 
 async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | None, float]:
-    """Return the relationship between this item and any recent similar item.
+    """Return (verdict, matched_item_id, score) for this item against recent ones.
 
-    Returns a tuple (verdict, matched_item_id, score):
-      verdict:  "duplicate"    → same event; the newer item should be dropped
-                "continuation" → same developing story, new development; should
-                                  thread as a reply to matched_item_id
-                "different"    → unrelated or different happening
-                "error"        → could not get a verdict (fail open)
-      matched_item_id: the older item it relates to, when verdict is duplicate
-                       or continuation; otherwise None.
-      score: the cosine similarity that put the candidate on the shortlist.
-
-    This step no longer decides anything on its own for duplicates — the judge
-    reads the pair. But it now ALSO distinguishes genuine continuations, which
-    the old pipeline had no language for.
+    verdict is duplicate | continuation | different | error. This step does not
+    decide duplicates on its own — the judge reads the pair — but it does
+    distinguish continuations, which the old pipeline had no language for.
     """
     from utils import embeddings
     from nodes import judge
@@ -202,10 +165,8 @@ async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | Non
     title = item["title"] or ""
     body = item["body"] or ""
 
-    # Strip the source's house decoration first — sirens, ALL CAPS, cashtags.
-    # A tweet and a wire story about the same event are written in completely
-    # different registers, and that difference alone was enough to push a real
-    # duplicate below the shortlist floor. See textclean.for_embedding().
+    # Strip the source's house decoration first: the register difference alone
+    # once pushed a real duplicate below the floor. See textclean.for_embedding.
     text = textclean.for_embedding(f"{title}\n{body[:400]}")
     if not text:
         return "different", None, 0.0
@@ -331,8 +292,7 @@ async def classify(item, *, with_meaning: bool = True) -> tuple[str, int | None,
     verdict (duplicate / continuation / different) so it can route correctly.
     """
     if check_wording(item["id"], item["title"] or "", item.get("norm_title") or ""):
-        # Wording duplicates don't carry a matched id for downstream use; they
-        # are always dropped. Return a synthetic score of 100.
+        # Always dropped, and carry no matched id. Synthetic score of 100.
         return "duplicate", None, 100.0
     if not with_meaning:
         return "different", None, 0.0
@@ -340,21 +300,13 @@ async def classify(item, *, with_meaning: bool = True) -> tuple[str, int | None,
 
 
 async def execute(item, *, with_meaning: bool = True) -> bool:
-    """Run the duplicate ladder on one queued item. True means "this is a repeat".
+    """Run checks 3 and 4 on one queued item. True means "this is a repeat".
 
-    Checks 1 and 2 already ran when the item was stored (check 1 is enforced by
-    the database, check 2 runs in the collect loop). This function runs checks 3
-    and 4, which are deliberately deferred: they are the slower ones, and doing
-    them at posting time rather than collection time means we only pay for items
-    that are actually candidates for publication.
+    Checks 1-2 already ran at storage time. These two are deferred to posting
+    time so we only pay for items that are real publication candidates.
 
-    This function is the OLD binary API. It treats continuations as NOT
-    duplicates, because the old pipeline has no threading. The brain uses
-    classify() instead.
-
-    Args:
-        item:         a row from the items table.
-        with_meaning: set False to skip the paid check (used by the feed checker).
+    The OLD binary API: it treats continuations as NOT duplicates. The brain
+    uses classify() instead.
     """
     item_id = item["id"]
     title = item["title"] or ""

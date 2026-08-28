@@ -24,26 +24,17 @@ from utils import db, logger as log_setup, textclean
 
 log = log_setup.get("rss")
 
-# There are THREE feed formats in the wild and we have to handle all of them,
-# which is why most lookups below appear three times over:
-#
-#   RSS 2.0   the common one. Tags are plain: <item>, <title>, <link>.
-#   Atom      tags live in a namespace, so the real name of <entry> is
-#             "{http://www.w3.org/2005/Atom}entry".
-#   RSS 1.0   also called RDF. Another namespace again. Deutsche Welle uses it.
-#
-# Getting this wrong fails SILENTLY — the feed returns a perfectly valid page
-# and we simply find no articles in it. That is exactly what happened with DW
-# on the first run of this project, so all three are now covered and
-# tools/check_sources.py shouts about any feed that yields zero articles.
+# THREE feed formats in the wild, which is why most lookups below appear three
+# times: RSS 2.0 (plain tags), Atom (namespaced), RSS 1.0 / RDF (another
+# namespace). Getting it wrong fails SILENTLY — a valid page with no articles
+# found in it, which is what happened with Deutsche Welle on the first run.
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _RSS1 = "{http://purl.org/rss/1.0/}"
 
 # RSS 1.0 usually carries its date in the Dublin Core namespace instead.
 _DC = "{http://purl.org/dc/elements/1.1/}"
 
-# A polite, honest user agent. Some sites block requests that don't identify
-# themselves; none of them mind being told who we are.
+# Some sites block requests that do not identify themselves.
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; NewsChannelBot/1.0)",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
@@ -51,9 +42,7 @@ _HEADERS = {
 
 _TIMEOUT = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
 
-# How many articles we take from a single feed in one go. A feed that suddenly
-# lists 200 items (which happens after an outage, or on a badly-behaved site)
-# should not flood the queue in one cycle.
+# A feed that suddenly lists 200 items should not flood the queue in one cycle.
 _MAX_PER_FEED = 15
 
 # A feed that fails this many times in a row is worth telling you about. It
