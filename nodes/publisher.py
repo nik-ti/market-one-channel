@@ -6,22 +6,19 @@ OUTPUT:  True if it reached the channel.
 DEPENDENCIES: utils/telegram_client.py, utils/telegram_html.py, utils/db.py
 
 WHAT IT ADDS TO A POST
-    The AI writes the body. This node adds the two fixed pieces:
-      * the single topic emoji at the front
-      * the source link
-    Those are deliberately NOT left to the AI. They are the same every time, and
-    there is no reason to let a system that guesses handle something certain.
+    The AI writes the body and chooses whether it carries a mark. This node adds
+    one fixed piece: the source credit at the end.
 
-ONE EMOJI, AND THIS NODE OWNS IT
-    A post carries exactly one emoji: the mark this node puts at the front. The
-    writer is told to use none, and `writer.strip_emojis()` removes any it used
-    anyway before the text ever reaches here — asking nicely is not enough on
-    its own.
+THE MARK IS NO LONGER OURS
+    This node used to stamp a topic emoji on the front of every post, because
+    letting the model choose freely had gone badly — it once put a 🔥 on a story
+    about a drone strike. But a fixed stamp meant the identical 🪙 on an ETF
+    approval and on an exchange hack, which tells the reader nothing.
 
-    That makes the mark mean something. When the model was free to add "1-3
-    emoji that complement the content", it put a 🔥 on a story about a drone
-    strike, which reads as celebrating it. One emoji, chosen in code from a
-    fixed list, cannot do that.
+    The writer now picks from config.POST_MARKS, a closed list of marks that
+    carry information rather than mood, and usually picks none at all.
+    `writer.enforce_mark()` deletes anything outside that list before the text
+    reaches this node, so the guarantee still holds without this node choosing.
 
 THE PACING RULES
     Telegram allows roughly 20 messages a minute to a channel. We stay an order
@@ -88,36 +85,29 @@ def _strip_foreign_links(html: str, allowed_url: str) -> str:
 # --- Assemble the finished message ---
 def compose(post_html: str, topic: str, url: str, source_name: str,
             brief: bool = False) -> str:
-    """Put the one emoji at the front and the source link at the end.
+    """Attach the source credit. The mark at the front belongs to the writer.
 
-    A BRIEF post — one written from a source only a couple of sentences long,
-    typically an X post — leads with ⚡ instead of the topic emoji, so readers
-    can tell a quick alert from a full write-up at a glance.
+    This node used to stamp a topic emoji on every post. It no longer does: the
+    writer picks at most one mark from config.POST_MARKS, and
+    writer.enforce_mark() has already removed anything that is not on that list
+    by the time the text arrives here.
+
+    `topic` and `brief` no longer affect the output. They stay in the signature
+    because every caller passes them and dropping them would break three call
+    sites to save nothing.
     """
-    emoji = config.TOPIC_EMOJI.get(topic)
-    if emoji is None:
-        # Should not happen: the sorter can only return a known topic. If it
-        # does, say so rather than quietly publishing an off-brand mark.
-        log.warning("Unknown topic %r on a finished post — using the fallback "
-                    "emoji. Check what the sorter returned.", topic)
-        emoji = config.FALLBACK_EMOJI
-
-    lead = config.BRIEF_EMOJI if brief else emoji
-
     body = _strip_foreign_links(post_html.strip(), url)
-
-    # The marker leads, unless the model already opened with that exact emoji.
-    if not body.startswith(lead):
-        body = f"{lead} {body}"
-
     parts = [body]
 
     # Always credit the source. We are rewriting other people's reporting, so
-    # attribution is both the decent and the sensible thing to do. The 🔗 is
-    # part of the link's label rather than a second emoji on the post — it
-    # marks where the post ends and the attribution begins.
+    # attribution is both the decent and the sensible thing to do. The dash
+    # reads as a byline rather than as decoration, and the stored name is a
+    # machine name ("crypto_banter"), so show the human one.
+    display = config.SOURCE_DISPLAY_NAMES.get(source_name, source_name)
     if url:
-        parts.append(f'\n<a href="{url}">🔗 {source_name}</a>')
+        parts.append(f'\n<a href="{url}">— {display}</a>')
+    else:
+        parts.append(f"\n— {display}")
 
     return "\n".join(parts)
 

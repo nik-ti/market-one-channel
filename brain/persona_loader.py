@@ -25,8 +25,10 @@ _persona_text: str | None = None
 def _visible_text(post_html: str) -> str:
     """Strip HTML tags and the source link line for a readable voice sample."""
     import re
-    # Drop the source link line if present.
-    text = re.sub(r"\n?🔗 .*$", "", post_html, flags=re.MULTILINE)
+    # Drop the source credit line if present. Two spellings, because posts sent
+    # before the byline change still carry the old 🔗 form and they are still
+    # perfectly good voice samples.
+    text = re.sub(r"\n?(?:🔗|—) .*$", "", post_html, flags=re.MULTILINE)
     # Drop HTML tags.
     text = re.sub(r"<[^>]+>", "", text)
     # Collapse whitespace.

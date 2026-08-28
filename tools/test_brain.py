@@ -38,15 +38,12 @@ LINE = "─" * 74
 
 def _render(post_html: str, topic: str, url: str, brief: bool = False) -> str:
     """Show the post roughly as a reader would see it (same as dry_run)."""
-    emoji = config.BRIEF_EMOJI if brief else config.TOPIC_EMOJI.get(
-        topic, config.FALLBACK_EMOJI)
-
     text = (post_html
             .replace("<b>", "\033[1m").replace("</b>", "\033[0m")
             .replace("<i>", "\033[3m").replace("</i>", "\033[0m")
             .replace("<code>", "`").replace("</code>", "`"))
 
-    return f"{emoji} {text}\n\n🔗 Source: {url}"
+    return f"{text}\n\n— Source: {url}"
 
 
 async def _process(item, index: int, total: int, args) -> str:

@@ -82,7 +82,8 @@ MAX_TOKENS = 800
 # pick from this list — it cannot invent a reason. To let the editor reject
 # something new, you must add it here deliberately, which is the point.
 RULES = {
-    "FACTUAL_DRIFT": "states something the source text does not say",
+    "FACTUAL_DRIFT": "states something the source text does not say, including "
+                     "true background the source never mentioned",
     "OVERCLAIM":     "turns 'proposed' or 'could' into 'launched' or 'will'",
     "NO_NEWS":       "no actual event — opinion, promotion, or pure commentary",
     "WRONG_TOPIC":   "not about crypto or geopolitics",
@@ -101,6 +102,14 @@ You will be shown BOTH the finished post AND the original source text. Check the
 ## Reject a post ONLY for one of these specific reasons
 
 * FACTUAL_DRIFT — the post states something the source does not say. A number, name, date, or claim that isn't there.
+  This INCLUDES background the writer filled in from its own knowledge, even when that background is true and even when it
+  is only a few words. If the source says "Elon Musk" and the post says "the founder and CEO of the aerospace company",
+  that is FACTUAL_DRIFT: the source never said it. If the source calls someone the "Spy Sheikh" and the post explains that
+  he "oversees the country's intelligence operations", that is FACTUAL_DRIFT too — unpacking a nickname into a factual
+  claim is still adding a claim.
+  Ask it as a test: could I point at the exact words in the source that this phrase came from? If not, reject.
+  The ONE exception is the short definition of a technical term the post is required to explain — "an ETF, a fund that
+  tracks an asset's price" is expected and is not drift.
 * OVERCLAIM — the post drops a hedge the source had. "Proposed" became "approved". "Could" became "will". "Reportedly" disappeared.
 * NO_NEWS — nothing actually happened. It is opinion, analysis, promotion, a roundup, or a reaction with no event.
 * WRONG_TOPIC — it is not about cryptocurrency or geopolitics.

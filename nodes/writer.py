@@ -90,24 +90,48 @@ LENGTH_RULE_BRIEF = (
     "single invented detail is a failure that gets the whole post thrown away."
 )
 
-# The writer chooses no emoji at all, ever.
+# The writer chooses the mark, from a closed list, and usually chooses none.
 #
-# It used to be allowed "1-3 that complement the content", which sounds
-# reasonable and was not: choosing an emoji is a judgement about tone, and the
-# model made that judgement badly on exactly the stories where tone matters. It
-# put a 🔥 on a drone strike. A post is not the place to find out that a model
-# reads "attack" as exciting.
+# Two earlier versions of this rule both failed, in opposite directions. First
+# the model was allowed "1-3 emoji that complement the content" and put a 🔥 on
+# a drone strike — choosing an emoji is a judgement about tone, and it made that
+# judgement badly on exactly the stories where tone matters. Then emoji were
+# banned outright and the publisher stamped a fixed topic mark on the front,
+# which was safe and dead: the same 🪙 on an ETF approval and on an exchange
+# hack.
 #
-# So the system puts exactly one mark at the front — the topic emoji, or ⚡ for
-# a flash — and that single consistent mark is the channel's whole visual
-# signature. Anything the model adds inside dilutes it and risks the tone.
-EMOJI_RULE = (
-    "NONE. Do not use a single emoji anywhere in this post — not in the "
-    "headline, not in the body, not at the end. The system adds one marker "
-    "itself, and that one mark is the whole visual style of this channel. Any "
-    "emoji you add will be stripped out automatically, so adding one only "
-    "makes the post read oddly where it was removed."
-)
+# config.POST_MARKS is the middle path, and the safety net the free choice never
+# had. Every mark on it is informational rather than emotional, so a bad pick is
+# merely unhelpful — it cannot celebrate a disaster. enforce_mark() below
+# deletes anything that is not on the list, so this rule does not depend on the
+# model complying with it.
+def _build_emoji_rule() -> str:
+    """Compose the emoji instruction from the whitelist in config."""
+    marks = "\n".join(f"  {mark} — {meaning}"
+                      for mark, meaning in config.POST_MARKS.items())
+    return (
+        "AT MOST ONE, and only when it earns its place. NO emoji at all is the "
+        "normal case and is always an acceptable answer.\n"
+        "\n"
+        "If you use one, it goes at the VERY START of the post — before the "
+        "opening <b> tag — followed by a single space. Nowhere else: not inside "
+        "the headline, not in the body, not at the end.\n"
+        "\n"
+        "You may use ONLY these, and only for the meaning given:\n"
+        f"{marks}\n"
+        "\n"
+        "Use one only when it tells the reader something the first line does "
+        "not already say at a glance — most often the direction of a number. "
+        "If the story is a statement, a plan, a dispute, an appointment or "
+        "anything without a clear direction, use none.\n"
+        "\n"
+        "Never use 🔥 🚀 💥 🚨 ⚡ 😱 🎉 or anything like them. This channel does "
+        "not shout. A second mark, a mark that is not on the list above, or a "
+        "mark used as decoration will be deleted automatically."
+    )
+
+
+EMOJI_RULE = _build_emoji_rule()
 
 PROMPT = """You write short English-language news posts for a Telegram channel covering cryptocurrency and geopolitics.
 
@@ -286,6 +310,43 @@ def strip_emojis(text: str) -> str:
     cleaned = re.sub(r" +(</)", r"\1", cleaned)             # "a </b>" -> "a</b>"
     cleaned = re.sub(r"(?m)^[ \t]+", "", cleaned)           # line-leading spaces
     return cleaned.strip()
+
+
+# Some marks are written with a trailing variation selector (⚖️) and some
+# without (⚖). Models produce both, so we accept either and always store the
+# canonical form from config.
+_VARIATION_SELECTOR = "️"
+
+
+def enforce_mark(text: str) -> tuple[str, str]:
+    """Keep one approved mark at the front; remove every other emoji.
+
+    Returns (text, mark) — mark is "" when the post carries none, which is the
+    normal case and not a problem.
+
+    The prompt asks for at most one mark from config.POST_MARKS at the very
+    start. This is the part that does not depend on the model doing as it is
+    told: a second mark, a 🔥, a flag halfway through a sentence, anything not
+    on the list — all of it is stripped exactly as it always was. The single
+    difference from the old blanket strip is that ONE approved leading mark now
+    survives.
+    """
+    text = (text or "").lstrip()
+
+    mark = ""
+    for candidate in config.POST_MARKS:
+        for spelling in (candidate, candidate.replace(_VARIATION_SELECTOR, "")):
+            if spelling and text.startswith(spelling):
+                mark = candidate                      # store the canonical form
+                text = text[len(spelling):].lstrip()
+                break
+        if mark:
+            break
+
+    cleaned = strip_emojis(text)
+    if not cleaned:
+        return "", ""
+    return (f"{mark} {cleaned}" if mark else cleaned), mark
 
 
 # These two questions look like one question, but they are not, and keeping them
@@ -551,13 +612,13 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
         log.warning("Writer returned nothing for item %s", item["id"])
         return ""
 
-    # Every post carries exactly one mark — the one the publisher adds — so any
-    # emoji the model slipped in gets removed here. Asking nicely in the prompt
-    # is not enough on its own; this is the part that actually guarantees it.
+    # A post carries at most one mark, from the approved list, at the front.
+    # Asking nicely in the prompt is not enough on its own; this is the part
+    # that actually guarantees it.
     before = post
-    post = strip_emojis(post)
+    post, mark = enforce_mark(post)
     if post != before:
-        log.info("Removed emoji(s) the writer added to item %s", item["id"])
+        log.info("Tidied the marks on item %s — kept %s", item["id"], mark or "none")
 
     if _looks_incomplete(post):
         log.warning("Writer produced a post that stops mid-sentence for item %s — "
@@ -706,9 +767,10 @@ async def execute_continuation(item, *, parent_post_html: str,
         return ""
 
     before = post
-    post = strip_emojis(post)
+    post, mark = enforce_mark(post)
     if post != before:
-        log.info("Removed emoji(s) the continuation writer added to item %s", item["id"])
+        log.info("Tidied the marks on continuation item %s — kept %s",
+                 item["id"], mark or "none")
 
     if _looks_incomplete(post):
         log.warning("Continuation writer produced a post that stops mid-sentence "

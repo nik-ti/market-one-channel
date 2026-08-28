@@ -92,33 +92,57 @@ X_ACCOUNTS = {
 # =============================================================================
 # POST APPEARANCE
 # =============================================================================
-# ONE emoji per post, and it is the first character. Nothing else.
+# AT MOST ONE mark per post, and it is the first character. Often there is none.
 #
-# It is added by code and never by the AI — the writer is told to use no emoji
-# at all, and any it produces anyway are stripped before sending. A single
-# consistent mark is the channel's whole visual signature, and a model choosing
-# decorative emoji per post destroys that: it once put a 🔥 on a drone strike.
+# The WRITER chooses it, from the closed list below, and only when the mark says
+# something the words don't already say at a glance — most often a direction on
+# a number. A post with nothing useful to mark carries no mark at all.
+#
+# WHY A LIST AND NOT A FREE CHOICE
+#   An earlier version let the model use "1-3 emoji that complement the
+#   content" and it put a 🔥 on a story about a drone strike, which reads as
+#   celebrating it. The answer to that is not to ban emoji — that produced the
+#   opposite problem, the same 🪙 on every crypto post whether it was an ETF
+#   approval or an exchange hack. The answer is to ban the ones that carry a
+#   MOOD. Every mark below is informational: chosen for the wrong story it is
+#   merely unhelpful, never celebratory. Anything outside this list is removed
+#   in writer.enforce_mark() before the post is ever sent.
 #
 # There are no hashtags. They were dropped on purpose: two tags covering the
 # whole channel sorted posts the way this desk thinks rather than the way a
 # reader does, and every post carried a line of tag that said almost nothing.
 
-TOPIC_EMOJI = {
-    "crypto":      "🪙",
-    "geopolitics": "🌍",
+POST_MARKS = {
+    "🔻": "a price, index or other figure falling",
+    "🔺": "a price, index or other figure rising",
+    "📊": "a scheduled data release or official statistics",
+    "🏛": "a central bank, government or regulator acting",
+    "⚖️": "a court ruling, charge, lawsuit or enforcement action",
+    "🌍": "a development between states — sanctions, tariffs, conflict",
+    "🪙": "a crypto-specific development none of the above fits",
 }
 
-VALID_TOPICS = tuple(TOPIC_EMOJI.keys())
-
-# Shown when a topic somehow isn't one of the above. It should never appear —
-# if you see it in the channel, the sorter returned something unexpected.
-FALLBACK_EMOJI = "📰"
+VALID_TOPICS = ("crypto", "geopolitics")
 
 # Short sources — typically an X post of a few sentences — become BRIEF posts:
-# they lead with ⚡ instead of the topic emoji and are kept much shorter, because
-# there is nothing to pad a longer post with except invention.
+# kept much shorter, because there is nothing to pad a longer post with except
+# invention.
 BRIEF_SOURCE_CHARS = _get_int("BRIEF_SOURCE_CHARS", 400)
-BRIEF_EMOJI = "⚡"
+
+
+# How the source is credited at the end of a post. The names we store are
+# machine names — "crypto_banter", "guardian_world" — because that is what the
+# feed and the relay call them. These are what a reader should actually see.
+SOURCE_DISPLAY_NAMES = {
+    "crypto_banter":  "Crypto Banter",
+    "WatcherGuru":    "Watcher Guru",
+    "TreeNewsFeed":   "Tree News",
+    "BLS_gov":        "US Bureau of Labor Statistics",
+    "coindesk":       "CoinDesk",
+    "theblock":       "The Block",
+    "guardian_world": "The Guardian",
+    "aljazeera":      "Al Jazeera",
+}
 
 
 # =============================================================================

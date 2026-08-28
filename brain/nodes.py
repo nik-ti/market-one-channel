@@ -219,11 +219,20 @@ async def sorter_node(state: dict) -> dict[str, Any]:
 # =============================================================================
 
 async def writer_node(state: dict) -> dict[str, Any]:
-    """Produce the post text. Tweets pass through verbatim, RSS gets rewritten.
+    """Produce the post text. Everything goes through the writer.
 
-    Same branching as the old loop: X posts are NOT rewritten (passthrough),
-    and only fall back to the AI writer when X's own truncation left nothing
-    usable.
+    X POSTS ARE REWRITTEN TOO, AS OF THIS CHANGE
+        Tweets used to bypass the writer entirely via writer.passthrough() —
+        mechanical string surgery, no model. That was safe (a post that IS the
+        source cannot invent anything) but it meant a third of the channel went
+        out in the source account's voice: sirens, ALL CAPS, cashtags. The
+        channel read like a scrapbook.
+
+        The writer's own rules are what keep this honest now: a thin source gets
+        LENGTH_RULE_BRIEF, which forbids adding any fact not in the source text,
+        and the editor still checks the finished post against the source and can
+        reject it. Watch the first few — the reason passthrough existed is that
+        an early rewrite invented casualty figures.
 
     REWRITE PASSES
         When this node is re-entered via the editor's rewrite loop,
@@ -254,18 +263,7 @@ async def writer_node(state: dict) -> dict[str, Any]:
         "recent_posts": recent_posts,
     }
 
-    if feedback:
-        # A rewrite: the AI writer fixes the rejected draft.
-        post_html = await writer.execute(item, **writer_kwargs)
-    elif item["origin"] == "x":
-        post_html = writer.passthrough(item)
-        used_ai = False
-        if not post_html:
-            log.info("Tweet %s left too little after trimming — using the writer", item_id)
-            post_html = await writer.execute(item, **writer_kwargs)
-            used_ai = True
-    else:
-        post_html = await writer.execute(item, **writer_kwargs)
+    post_html = await writer.execute(item, **writer_kwargs)
 
     if not post_html:
         # Writing can fail for reasons that pass on their own. Leave it queued.
@@ -293,7 +291,7 @@ async def writer_node(state: dict) -> dict[str, Any]:
         post_id = db.create_post(
             item_id=item_id, topic=state["sorter_verdict"]["topic"],
             post_html=post_html, image_url=item.get("image_url") or "",
-            writer_model=writer.MODEL if used_ai else "passthrough (no AI)",
+            writer_model=writer.MODEL,
         )
         if post_id is None:
             # A post already exists for this item — a previous run got this far
