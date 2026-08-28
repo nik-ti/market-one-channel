@@ -1,21 +1,4 @@
-# --- Logging setup: what gets written to the log file and the screen ---
-#
-# WHAT THIS FILE DOES
-#   Configures Python's logging once, at startup, so every other file can just
-#   ask for a logger and have it behave sensibly.
-#
-# WHERE IT FITS
-#   Called once from main.py (and from each tool in tools/). Nothing else needs
-#   to think about it.
-#
-# WHY THE "NOISY LIBRARIES" SECTION MATTERS
-#   Libraries like httpx log a line for every single HTTP request. With systemd
-#   appending everything to one file forever, that is how a log quietly grows to
-#   hundreds of megabytes. There is a 180 MB example of exactly this on this
-#   machine right now. So we turn their chatter down to warnings only.
-#
-# DEPENDENCIES
-#   Python's built-in logging. Reads LOG_LEVEL and LOG_PATH from config.
+"""Logging setup, called once from main.py and from each tool."""
 
 from __future__ import annotations
 
@@ -24,8 +7,8 @@ import sys
 
 import config
 
-# Libraries that log every request or every internal step. We only want to hear
-# from these when something is actually wrong.
+# These log a line per HTTP request. Left alone, that grows the log file to
+# hundreds of megabytes — there is a 180 MB example of it on this machine.
 _NOISY = ("httpx", "httpcore", "asyncio", "telegram", "telegram.ext", "redis")
 
 _configured = False
@@ -56,20 +39,13 @@ def setup(level: str | None = None, to_file: bool = True) -> None:
     root = logging.getLogger()
     root.setLevel(level_value)
 
-    # Always print to the screen. Under systemd this is what lands in the log
-    # file; in your terminal it is what you actually watch.
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     root.addHandler(console)
 
-    # Additionally write to our own log file — but ONLY when you started the
-    # program yourself in a terminal.
-    #
-    # Under systemd, the service file already redirects everything printed to
-    # the screen into logs/news-channel.log. If we ALSO wrote to that file
-    # directly, every single line would appear in it twice. (It did, until this
-    # check was added.) A terminal is detectable because stdout is attached to
-    # one; systemd's is not.
+    # Only when started by hand. Under systemd the service file already
+    # redirects stdout into the same log file, so writing to it here as well
+    # put every line in twice — which it did, until this check.
     if to_file and sys.stdout.isatty():
         config.LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(config.LOG_PATH, encoding="utf-8")

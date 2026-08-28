@@ -1,10 +1,7 @@
-"""
-BRAIN GRAPH — the editorial workflow as an explicit state machine.
+"""The editorial workflow as an explicit state machine.
 
-PURPOSE: This is the map of the whole pipeline. Each station is a node in
-         brain/nodes.py; this file wires them together and says where an item
-         can go next. Reading this file should tell you the entire life of a
-         queued item without opening anything else.
+Each station is a node in brain/nodes.py; this file wires them together and
+says where an item can go next.
 
 THE SHAPE
 
@@ -26,19 +23,8 @@ THE SHAPE
                                                             ├─ declined
                                                             └─ approved ──► publish
 
-    publish sends continuations with reply_to_message_id set, so Telegram
-    threads them under the original post.
-
-WHY THE STATE IS A PLAIN DICT SHAPE
-    LangGraph threads one state object through every node. We keep the item as
-    a plain dict (converted from the sqlite row) rather than the row itself so
-    the state stays serialisable — that keeps the door open to a checkpointer
-    later, and avoids every node depending on sqlite internals.
-
-ENTRY POINT
-    run_item(item, dry_run=...) — build the initial state, invoke the compiled
-    graph, return the final state. nodes/publish_loop.py and tools/test_brain.py
-    both call this; the only difference is dry_run.
+The item is kept as a plain dict rather than the sqlite row so the state stays
+serialisable, which keeps the door open to a checkpointer later.
 """
 
 from __future__ import annotations
@@ -53,16 +39,12 @@ from brain import nodes
 class BrainState(TypedDict, total=False):
     """Everything the graph knows about the item it is processing.
 
-    total=False means a node only has to return the fields it changes;
-    LangGraph merges the rest. `outcome` is the terminal word the publish loop
-    counts (published | duplicate | irrelevant | low_impact | declined |
-    retry | failed) — an empty outcome means "still moving through the line".
+    total=False means a node only returns the fields it changes. An empty
+    `outcome` means "still moving down the line".
     """
-    # --- set once, at the start ---
-    item: dict                  # the queued item, as a plain dict
-    dry_run: bool               # rehearsal mode: decide everything, send nothing
+    item: dict
+    dry_run: bool               # rehearsal: decide everything, send nothing
 
-    # --- filled in as the item moves down the line ---
     relationship: str           # "new" | "duplicate" | "continuation"
     matched_item_id: int | None
     sorter_verdict: dict
@@ -74,10 +56,9 @@ class BrainState(TypedDict, total=False):
     rewrite_count: int
     recent_posts: list[str]
     reply_to_message_id: int | None
-    parent_post_html: str       # the original post a continuation replies to
-
-    # --- the final word ---
-    outcome: str
+    parent_post_html: str       # the post a continuation replies to
+    outcome: str                # published | duplicate | irrelevant |
+                                # low_impact | declined | retry | failed
 
 
 def build_graph():
@@ -124,22 +105,15 @@ def build_graph():
     return builder.compile()
 
 
-# Compiled once and shared — compiling is wiring, not work, so doing it at
-# import time is fine and means every caller uses the identical machine.
+# Compiling is wiring, not work, so doing it at import time is fine.
 graph = build_graph()
 
 
 async def run_item(item_row, *, dry_run: bool = False) -> dict[str, Any]:
-    """Run one queued item through the whole editorial graph.
+    """Run one queued item through the editorial graph.
 
-    Args:
-        item_row: a row from the items table (sqlite3.Row or dict).
-        dry_run:  when True, every decision is made for real but nothing is
-                  written to the posts table, no verdicts are recorded, and
-                  nothing is sent. This is how tools/test_brain.py rehearses.
-
-    Returns the final state; state["outcome"] is the one-word result the
-    publish loop counts.
+    dry_run makes every decision for real but writes nothing and sends nothing.
+    Returns the final state; state["outcome"] is the one-word result.
     """
     initial: BrainState = {
         "item": dict(item_row),
