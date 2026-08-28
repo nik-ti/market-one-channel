@@ -1,30 +1,12 @@
-"""
-NODE: Fetch RSS
-PURPOSE: Read every enabled news feed and return the articles we haven't seen before.
-INPUT:   Nothing — it reads the feed list from the database (which config.py fills in).
-OUTPUT:  A list of Article objects, newest-first as the feed ordered them.
-DEPENDENCIES: httpx (fetching), BeautifulSoup (cleaning up summaries),
-              Python's built-in XML parser. No feedparser — see the note below.
+"""Reads every enabled feed and returns the articles we have not seen before.
 
-WHAT AN RSS FEED IS
-    A page that a news site publishes purely for machines: a plain list of its
-    latest articles with titles, links and publication times. Almost every news
-    site has one. It is far more reliable than reading the normal web page,
-    because the format never changes with a redesign.
+WHAT MAKES THIS FREE: each read hands us an ETag and a Last-Modified date, and
+handing them back next time gets "304 Not Modified" with no content when nothing
+has been published. That is why polling every 10 minutes costs essentially
+nothing, for us and for the sites.
 
-THE TRICK THAT MAKES THIS FREE
-    Every time we read a feed, the site hands us a couple of little tokens (an
-    "ETag" and a "Last-Modified" date). Next time we ask, we hand them back, and
-    if nothing has been published since, the site replies "304 Not Modified"
-    with no content at all. That reply is a few hundred bytes and takes no
-    parsing. It is why checking 13 feeds every 10 minutes costs essentially
-    nothing, for us and for them.
-
-WHY WE PARSE THE XML BY HAND
-    The obvious library for this is `feedparser`, but it isn't installed on this
-    machine and this project deliberately adds no new dependencies. Parsing a
-    feed is about forty lines, and this version is lifted from the news-trader
-    bot where it has been reading feeds reliably for months.
+The XML is parsed by hand rather than with feedparser, which is not installed
+here and would be a new dependency for about forty lines of work.
 """
 
 from __future__ import annotations
@@ -42,26 +24,17 @@ from utils import db, logger as log_setup, textclean
 
 log = log_setup.get("rss")
 
-# There are THREE feed formats in the wild and we have to handle all of them,
-# which is why most lookups below appear three times over:
-#
-#   RSS 2.0   the common one. Tags are plain: <item>, <title>, <link>.
-#   Atom      tags live in a namespace, so the real name of <entry> is
-#             "{http://www.w3.org/2005/Atom}entry".
-#   RSS 1.0   also called RDF. Another namespace again. Deutsche Welle uses it.
-#
-# Getting this wrong fails SILENTLY — the feed returns a perfectly valid page
-# and we simply find no articles in it. That is exactly what happened with DW
-# on the first run of this project, so all three are now covered and
-# tools/check_sources.py shouts about any feed that yields zero articles.
+# THREE feed formats in the wild, which is why most lookups below appear three
+# times: RSS 2.0 (plain tags), Atom (namespaced), RSS 1.0 / RDF (another
+# namespace). Getting it wrong fails SILENTLY — a valid page with no articles
+# found in it, which is what happened with Deutsche Welle on the first run.
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _RSS1 = "{http://purl.org/rss/1.0/}"
 
 # RSS 1.0 usually carries its date in the Dublin Core namespace instead.
 _DC = "{http://purl.org/dc/elements/1.1/}"
 
-# A polite, honest user agent. Some sites block requests that don't identify
-# themselves; none of them mind being told who we are.
+# Some sites block requests that do not identify themselves.
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; NewsChannelBot/1.0)",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
@@ -69,9 +42,7 @@ _HEADERS = {
 
 _TIMEOUT = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
 
-# How many articles we take from a single feed in one go. A feed that suddenly
-# lists 200 items (which happens after an outage, or on a badly-behaved site)
-# should not flood the queue in one cycle.
+# A feed that suddenly lists 200 items should not flood the queue in one cycle.
 _MAX_PER_FEED = 15
 
 # A feed that fails this many times in a row is worth telling you about. It
@@ -79,7 +50,6 @@ _MAX_PER_FEED = 15
 _ALERT_AFTER_FAILURES = 5
 
 
-# --- One article from a feed ---
 @dataclass
 class Article:
     """A single story pulled from a feed, cleaned up and ready to store."""
@@ -92,7 +62,6 @@ class Article:
     published: datetime | None   # None when the feed didn't say
 
 
-# --- Work out when an article was published ---
 def _parse_date(raw: str) -> datetime | None:
     """Turn a feed's date string into a proper UTC timestamp, or None if unreadable.
 
@@ -124,7 +93,6 @@ def _parse_date(raw: str) -> datetime | None:
         return None
 
 
-# --- Pull the articles out of one feed's XML ---
 def _parse_feed(xml_text: str, source_name: str, topic: str) -> list[Article]:
     """Turn the raw XML of a feed into a list of Articles.
 
@@ -191,7 +159,6 @@ def _parse_feed(xml_text: str, source_name: str, topic: str) -> list[Article]:
     return articles
 
 
-# --- Fetch one feed ---
 async def fetch_one(client: httpx.AsyncClient, source: dict) -> tuple[list[Article], str]:
     """Fetch a single feed and return (articles, status word).
 
@@ -248,7 +215,6 @@ async def fetch_one(client: httpx.AsyncClient, source: dict) -> tuple[list[Artic
     return articles[:_MAX_PER_FEED], "ok"
 
 
-# --- The node's entry point: read every feed ---
 async def execute() -> list[Article]:
     """Read all enabled feeds and return every article they offered.
 

@@ -1,21 +1,9 @@
-# --- Error alerts: tell you on Telegram when something breaks ---
-#
-# WHAT THIS FILE DOES
-#   Sends a short "something went wrong" message to your own Telegram DM. This
-#   is how you find out about a problem without having to read log files.
-#
-# WHERE IT FITS
-#   Called from anywhere that catches an error. It goes to your PRIVATE chat,
-#   never to the public channel — readers should never see the plumbing.
-#
-# THE ONE RULE IN THIS FILE
-#   Nothing here may ever raise an exception. If alerting fails, we log it and
-#   move on. An error while reporting an error must not become a second, worse
-#   problem — and it must never take down the loop that was merely trying to
-#   tell you something.
-#
-# DEPENDENCIES
-#   httpx. Uses TELEGRAM_BOT_TOKEN and ERROR_CHAT_ID from config.
+"""Sends "something went wrong" to your private Telegram DM, never the channel.
+
+THE ONE RULE HERE: nothing may ever raise. An error while reporting an error
+must not become a second, worse problem, and must never take down the loop that
+was merely trying to tell you something.
+"""
 
 from __future__ import annotations
 

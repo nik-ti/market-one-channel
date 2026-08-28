@@ -1,38 +1,15 @@
-"""
-NODE: Publish loop
-PURPOSE: Take queued items and turn them into published posts, at a sensible pace.
-INPUT:   Rows in the items table with status 'queued'.
-OUTPUT:  Messages in the Telegram channel.
-DEPENDENCIES: brain.graph (runs dedup/sorter/writer/editor/publisher), publisher.
+"""Turns queued items into published posts, at a sensible pace.
 
-THE ORDER OF WORK, AND WHY
-    Every tick:
-      0. Throw away anything that has gone stale.
-      1. Run the item through brain.graph.run_item(), which handles
-         relationship detection, sorting, writing, editing, and sending.
+Each tick expires stale items, then runs the rest through brain.graph.
 
-    The graph narrows the field the same way the old hand-written pipeline did,
-    but the state machine is explicit and reusable (tools/test_brain.py uses the
-    same graph in dry-run mode).
+EXPIRY IS NOT OPTIONAL. The feeds supply far more than the hourly posting limit,
+so without it the queue grows forever and the channel ends up posting this
+morning's news at midnight. Another project on this machine has 2,540 items
+stuck in exactly that state. Anything older than QUEUE_TTL_MINUTES is dropped:
+when more news arrives than we can carry, the best and freshest wins.
 
-WHY STEP 0 IS NOT OPTIONAL
-    The posting limits mean we can publish at most 12 items an hour. The feeds
-    supply far more than that at busy times. So the queue would grow without
-    end, and eventually the channel would be posting this morning's news at
-    midnight.
-
-    Another project on this machine has 2,540 items stuck in exactly this state,
-    growing by about 400 a day, because it has no expiry. Here, news simply goes
-    off: anything not posted within QUEUE_TTL_MINUTES is dropped. Combined with
-    posting the most important first, that means when more news arrives than we
-    can carry, the best and freshest wins and the rest quietly dies. For news
-    that is the correct behaviour.
-
-CRASH SAFETY
-    Every step is a recorded change of state in the database. If the program
-    stops halfway through, the next start picks up exactly where it left off.
-    Nothing is ever half-posted, because a post can only be created once per
-    item — the database enforces that.
+Every step is a recorded state change in the database, so a crash resumes where
+it left off and nothing is ever half-posted.
 """
 
 from __future__ import annotations
@@ -47,7 +24,6 @@ from utils import db, logger as log_setup
 log = log_setup.get("publish")
 
 
-# --- Step 0: throw out anything past its sell-by date ---
 def _expire_stale() -> None:
     """Drop queued items that have waited too long, and trim an oversized queue."""
     expired = db.expire_stale_items(config.QUEUE_TTL_MINUTES)
@@ -63,35 +39,26 @@ def _expire_stale() -> None:
         db.bump_counter("expired", trimmed)
 
 
-# --- Take one item all the way from queued to published ---
 async def process_item(item) -> str:
     """Run one item through the brain graph.
 
-    The graph (brain/graph.py) replaces the old hand-written pipeline with an
-    explicit state machine: relationship check, sorter, writer/editor loop, and
-    publisher. It records the same statuses and counters the old loop did.
-
-    Returns a word describing what happened, for the log and the counters:
-        published | duplicate | irrelevant | low_impact | declined | retry | failed
+    Returns one word: published | duplicate | irrelevant | low_impact |
+    declined | retry | failed.
     """
     item_id = item["id"]
 
-    # --- Have we already done all the work for this one? ---
-    # An item back in the queue with a post already approved means a previous
-    # send failed. Everything up to that point is done and paid for, so go
-    # straight to sending rather than repeating the entire graph.
+    # A queued item with an already-approved post means a previous send failed.
+    # That work is paid for, so go straight to sending.
     existing = db.get_post_by_item(item_id)
     if existing is not None and existing["status"] == "approved":
         log.info("Item %s already has an approved post — retrying the send only", item_id)
         sent = await publisher.execute(item, existing["post_html"], existing["id"])
         return "published" if sent else "retry"
 
-    # --- Run the editorial brain ---
     state = await brain.run_item(item, dry_run=False)
     return state.get("outcome", "failed")
 
 
-# --- One pass of the publishing cycle ---
 async def publish_once(limit: int | None = None) -> dict[str, int]:
     """Do one round: expire stale items, then process a few. Returns the tally."""
     _expire_stale()
@@ -105,8 +72,7 @@ async def publish_once(limit: int | None = None) -> dict[str, int]:
     outcomes: dict[str, int] = {}
     published = 0
 
-    # Look at more items than we intend to publish, because most will be
-    # filtered out along the way — duplicates, off-topic, rejected.
+    # Look at more than we intend to publish; most get filtered out.
     candidates = db.next_queued_items(batch_size * 8)
     if not candidates:
         return {}
@@ -129,8 +95,6 @@ async def publish_once(limit: int | None = None) -> dict[str, int]:
             if published < batch_size:
                 await publisher.pause_between_sends()
 
-            # Re-check the limits after each send — the hourly cap may now be
-            # reached even though we started the round under it.
             allowed, reason = publisher.check_limits()
             if not allowed:
                 log.info("Stopping this round: %s", reason)
@@ -142,14 +106,8 @@ async def publish_once(limit: int | None = None) -> dict[str, int]:
     return outcomes
 
 
-# --- The node's entry point ---
 async def run(once: bool = False, limit: int | None = None) -> None:
-    """Run the publishing loop.
-
-    Args:
-        once:  do a single round and stop.
-        limit: publish at most this many in the round (testing).
-    """
+    """Run the publishing loop. `once` does a single round and stops."""
     if once:
         log.info("Single publishing round...")
         await publish_once(limit=limit)

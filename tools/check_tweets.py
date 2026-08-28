@@ -1,22 +1,14 @@
-"""
-TOOL: Check tweets
-PURPOSE: Watch the shared tweet relay live and print what arrives.
-USAGE:   python tools/check_tweets.py           (watch until you press Ctrl-C)
-         python tools/check_tweets.py --drain   (show what's waiting, then exit)
+"""Watches the shared tweet relay live and prints what arrives.
 
-WHY THIS IS SAFE TO RUN
-    It uses a THROWAWAY bookmark, named after the current time, instead of the
-    real "news-channel" one. So it cannot skip tweets the live channel hasn't
-    processed yet, and it cannot disturb the trading bot either. Run it whenever
-    you like, including while everything else is running.
+    python tools/check_tweets.py            watch until Ctrl-C
+    python tools/check_tweets.py --drain    show what is waiting, then exit
 
-WHAT TO LOOK FOR
-    - Tweets appearing at all (if nothing appears for several minutes, the
-      accounts are simply quiet — check tweet-relay is running with
-      `systemctl status tweet-relay`)
-    - The [IMAGE] marker, which is what the channel will attach to a post
-    - "not followed" lines: accounts the relay carries for the trading bot that
-      this channel deliberately ignores
+Safe to run at any time: it uses a throwaway bookmark named after the current
+time, so it cannot skip tweets the live channel has not processed or disturb the
+trading bot.
+
+Nothing for several minutes usually means the accounts are quiet — check
+`systemctl status tweet-relay`.
 """
 
 from __future__ import annotations

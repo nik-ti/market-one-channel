@@ -1,15 +1,7 @@
-"""
-PERSONA LOADER — loads the channel voice and recent posts for the writer.
+"""Loads the channel voice (brain/persona.md) and recent posts for the writer.
 
-PURPOSE: The writer needs two pieces of context beyond the source material:
-         1. The persona file (brain/persona.md): the channel's voice, rules,
-            and attitude.
-         2. Recent published posts: concrete examples so the next post sounds
-            like it came from the same hand.
-
-The file is read once and cached. In production the service stays up for days,
-so caching is fine; during development you can restart the service or touch
-persona.md to reload.
+The persona file is read once and cached, so a change to it needs a service
+restart to take effect.
 """
 
 from __future__ import annotations
@@ -25,8 +17,10 @@ _persona_text: str | None = None
 def _visible_text(post_html: str) -> str:
     """Strip HTML tags and the source link line for a readable voice sample."""
     import re
-    # Drop the source link line if present.
-    text = re.sub(r"\n?🔗 .*$", "", post_html, flags=re.MULTILINE)
+    # Drop the source credit line if present. Two spellings, because posts sent
+    # before the byline change still carry the old 🔗 form and they are still
+    # perfectly good voice samples.
+    text = re.sub(r"\n?(?:🔗|—) .*$", "", post_html, flags=re.MULTILINE)
     # Drop HTML tags.
     text = re.sub(r"<[^>]+>", "", text)
     # Collapse whitespace.
@@ -34,10 +28,7 @@ def _visible_text(post_html: str) -> str:
 
 
 def load_persona() -> str:
-    """Return the persona markdown, or a fallback notice if the file is missing.
-
-    Missing persona is not an error — the writer's built-in prompt still works.
-    """
+    """Return the persona markdown. A missing file is not an error."""
     global _persona_text
     if _persona_text is not None:
         return _persona_text

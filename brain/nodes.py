@@ -1,26 +1,15 @@
-"""
-BRAIN NODES — one function per station of the editorial graph.
+"""One function per station of the editorial graph.
 
-PURPOSE: These are thin wrappers. Each one calls an existing node module
-         (dedup, sorter, writer, editor, publisher) with the same arguments the
-         old hand-written loop used, and records the result into the graph
-         state. The intelligence still lives in nodes/*.py — this file is the
-         assembly line that moves an item between them.
+Thin wrappers: each calls a module in nodes/ and records the result into the
+graph state. The intelligence lives there; this file is the assembly line.
 
-DRY RUN MODE
-    Every node takes the same item through the same decisions in both modes,
-    but in dry-run mode nothing is published, no posts are written, no editor
-    verdicts are recorded and no item statuses change. That is what lets
-    tools/test_brain.py rehearse the exact live pipeline without touching the
-    channel. (Duplicate checks DO still mark items, exactly as
-    tools/dry_run.py always has — a confirmed duplicate is a fact, not a
-    rehearsal side effect.)
+DRY RUN takes an item through the same decisions but publishes nothing, writes
+no posts and changes no statuses — that is how tools/test_brain.py rehearses the
+live pipeline. Duplicate checks DO still mark items: a confirmed duplicate is a
+fact, not a rehearsal side effect.
 
-RETRY SEMANTICS
-    Identical to the old loop: a model that cannot be reached bumps the item's
-    attempt counter and the item is left queued for the next tick. After
-    config.MAX_ATTEMPTS it is marked failed. The graph does not invent new
-    failure behaviour; it calls the same db functions in the same situations.
+A model that cannot be reached bumps the item's attempt counter and leaves it
+queued. After config.MAX_ATTEMPTS it is marked failed.
 """
 
 from __future__ import annotations
@@ -34,25 +23,16 @@ from utils import db, logger as log_setup
 
 log = log_setup.get("brain")
 
-# Editor rejections the writer can actually do something about. These are
-# problems of EXECUTION — the post misstates the source, drops a hedge, stops
-# mid-sentence, breaks a tag, overruns the length. Sending those back for one
-# more draft is worthwhile.
-#
-# The other five rules (NO_NEWS, WRONG_TOPIC, HYPE, INJECTION, UNSAFE) are
-# problems of CONTENT — no rewrite of the same source fixes them, so those
-# posts are dropped on the spot exactly as before.
+# Problems of EXECUTION, which one more draft can fix. The other five rules
+# (NO_NEWS, WRONG_TOPIC, HYPE, INJECTION, UNSAFE) are problems of CONTENT — no
+# rewrite of the same source fixes those, so they are dropped on the spot.
 FIXABLE_RULES = frozenset({
     "FACTUAL_DRIFT", "OVERCLAIM", "INCOMPLETE", "BROKEN_HTML", "TOO_LONG",
 })
 
 
-# =============================================================================
-# ROUTING HELPERS
-# =============================================================================
-# Conditional edges in brain/graph.py call these. The convention: a node sets
-# state["outcome"] when the item's journey is over (published, dropped,
-# retry...). An empty outcome means "carry on to the next station".
+# Conditional edges in brain/graph.py call these. A node sets state["outcome"]
+# when the item's journey is over; an empty outcome means "carry on".
 
 def route_after_relationship(state: dict) -> str:
     if state.get("outcome"):
@@ -85,21 +65,10 @@ def route_after_editor(state: dict) -> str:
     return "publish"
 
 
-# =============================================================================
-# STATION 1: have we already covered this story?
-# =============================================================================
-
 async def relationship_check(state: dict) -> dict[str, Any]:
-    """Classify the item's relationship to recent stories.
+    """Classify the item as duplicate, continuation, or new.
 
-    Possible results:
-      * duplicate     → same event; drop
-      * continuation  → same developing story, new development; thread as reply
-      * new           → unrelated or different story; carry on normally
-
-    In live mode this node records the classification itself (rather than
-    calling dedup.execute, which would only know "duplicate"). In dry-run mode
-    it uses dedup.classify(), which leaves item statuses alone.
+    A continuation is threaded as a reply to the story it continues.
     """
     item = state["item"]
     item_id = item["id"]
@@ -108,9 +77,7 @@ async def relationship_check(state: dict) -> dict[str, Any]:
     if dry:
         verdict, matched_id, score = await dedup.classify(item, with_meaning=True)
     else:
-        # Live mode: run the same classify, then set statuses/counters here so
-        # duplicates and continuations are recorded correctly. A wording
-        # duplicate still goes through the old counter name for continuity.
+        # Same classify, but statuses and counters are recorded here.
         verdict, matched_id, score = await dedup.classify(item, with_meaning=True)
         if verdict == "duplicate":
             db.set_item_status(item_id, "duplicate", "same event as a recent story")
@@ -130,12 +97,11 @@ async def relationship_check(state: dict) -> dict[str, Any]:
     return {"relationship": "new"}
 
 
-# --- Fetch the published post a continuation will reply to ---
 async def fetch_parent(state: dict) -> dict[str, Any]:
-    """For a continuation, look up the original published Telegram message.
+    """Look up the Telegram message a continuation will reply to.
 
-    If the older item was never actually published, a reply is impossible, so
-    we fall back to treating this as a new standalone story.
+    If the older item was never published a reply is impossible, so it falls
+    back to a new standalone story.
     """
     matched_id = state.get("matched_item_id")
     if not matched_id:
@@ -153,20 +119,16 @@ async def fetch_parent(state: dict) -> dict[str, Any]:
     }
 
 
-# =============================================================================
-# STATION 2: is this worth covering, and what is it?
-# =============================================================================
-
 async def sorter_node(state: dict) -> dict[str, Any]:
-    """Score the item. Same call, same gates, same statuses as the old loop."""
+    """Score the item and apply the importance gate."""
     item = state["item"]
     item_id = item["id"]
     dry = state.get("dry_run", False)
 
     verdict = await sorter.execute(item)
 
-    # The scorer could not be reached. We do not know whether this matters, so
-    # it goes back in the queue rather than being published or dropped.
+    # Unreachable scorer: we do not know if it matters, so requeue rather than
+    # publish or drop.
     if verdict["fallback"]:
         if dry:
             return {"sorter_verdict": verdict, "outcome": "sorter_error"}
@@ -203,9 +165,8 @@ async def sorter_node(state: dict) -> dict[str, Any]:
             db.bump_counter("below_importance")
         return {"sorter_verdict": verdict, "outcome": "low_impact"}
 
-    # Carry the verdict on the item itself so the writer, editor and publisher
-    # see the topic the sorter decided — the old loop achieved the same thing
-    # by re-reading the row after set_item_sorting.
+    # Carry the verdict on the item so the writer and editor see the topic the
+    # sorter decided.
     updated_item = dict(item)
     updated_item["topic"] = verdict["topic"]
     updated_item["importance"] = verdict["importance"]
@@ -219,19 +180,16 @@ async def sorter_node(state: dict) -> dict[str, Any]:
 # =============================================================================
 
 async def writer_node(state: dict) -> dict[str, Any]:
-    """Produce the post text. Tweets pass through verbatim, RSS gets rewritten.
+    """Produce the post text. Everything goes through the writer, tweets included.
 
-    Same branching as the old loop: X posts are NOT rewritten (passthrough),
-    and only fall back to the AI writer when X's own truncation left nothing
-    usable.
+    Tweets used to bypass it via writer.passthrough(), which was safe but sent a
+    third of the channel out in the source account's voice. What keeps the
+    rewrite honest is LENGTH_RULE_BRIEF, which forbids adding any fact not in
+    the source, plus the editor checking the result against it.
 
-    REWRITE PASSES
-        When this node is re-entered via the editor's rewrite loop,
-        state["editor_feedback"] carries the rejection reason and
-        state["post_id"] points at the existing draft. The rewrite always goes
-        to the AI writer (a verbatim tweet can never be in this position — its
-        four rules are all content-level) and REPLACES the existing draft's
-        text rather than creating a second post row.
+    On a rewrite pass state["editor_feedback"] carries the rejection reason and
+    state["post_id"] points at the existing draft, whose text is REPLACED rather
+    than a second post row being created.
     """
     item = state["item"]
     item_id = item["id"]
@@ -254,18 +212,7 @@ async def writer_node(state: dict) -> dict[str, Any]:
         "recent_posts": recent_posts,
     }
 
-    if feedback:
-        # A rewrite: the AI writer fixes the rejected draft.
-        post_html = await writer.execute(item, **writer_kwargs)
-    elif item["origin"] == "x":
-        post_html = writer.passthrough(item)
-        used_ai = False
-        if not post_html:
-            log.info("Tweet %s left too little after trimming — using the writer", item_id)
-            post_html = await writer.execute(item, **writer_kwargs)
-            used_ai = True
-    else:
-        post_html = await writer.execute(item, **writer_kwargs)
+    post_html = await writer.execute(item, **writer_kwargs)
 
     if not post_html:
         # Writing can fail for reasons that pass on their own. Leave it queued.
@@ -286,18 +233,17 @@ async def writer_node(state: dict) -> dict[str, Any]:
                 "editor_feedback": "", "rewrite_requested": False}
 
     if existing_post_id:
-        # Rewrite pass: the draft row already exists — replace its text.
+        # Rewrite pass: the draft row already exists.
         db.update_post_text(existing_post_id, post_html)
         post_id = existing_post_id
     else:
         post_id = db.create_post(
             item_id=item_id, topic=state["sorter_verdict"]["topic"],
             post_html=post_html, image_url=item.get("image_url") or "",
-            writer_model=writer.MODEL if used_ai else "passthrough (no AI)",
+            writer_model=writer.MODEL,
         )
         if post_id is None:
-            # A post already exists for this item — a previous run got this far
-            # before stopping. Pick it up rather than writing a second one.
+            # A previous run got this far before stopping. Reuse its post.
             existing = db.get_post_by_item(item_id)
             if existing is None:
                 db.set_item_status(item_id, "failed", "post row went missing")
@@ -312,12 +258,9 @@ async def writer_node(state: dict) -> dict[str, Any]:
 
 
 async def continuation_writer_node(state: dict) -> dict[str, Any]:
-    """Write a continuation as a natural follow-up to the original post.
+    """Write a continuation as a follow-up to the original post.
 
-    The writer sees both the new source material and the original published
-    post, and is told to add only what is new — it must not repeat facts from
-    the parent. All the factual-accuracy and hedge rules from the main prompt
-    still apply.
+    The writer sees the parent post and is told to add only what is new.
     """
     item = state["item"]
     item_id = item["id"]
@@ -382,14 +325,11 @@ async def continuation_writer_node(state: dict) -> dict[str, Any]:
 # =============================================================================
 
 async def editor_node(state: dict) -> dict[str, Any]:
-    """Judge the finished post against its source. Fails closed, as before.
+    """Judge the finished post against its source. Fails closed.
 
-    THE REWRITE LOOP
-        A rejection naming ONLY fixable rules (see FIXABLE_RULES above) is sent
-        back to the writer once, with the reason, instead of killing the post.
-        The post is not marked declined until a rejection is final — so a
-        rejected-then-fixed draft never appears in the decline statistics, and
-        a rejected-then-rejected draft appears exactly once, as before.
+    A rejection naming ONLY fixable rules goes back to the writer once with the
+    reason. The post is not marked declined until a rejection is final, so a
+    rejected-then-fixed draft never shows up in the decline statistics.
     """
     item = state["item"]
     dry = state.get("dry_run", False)
@@ -402,7 +342,7 @@ async def editor_node(state: dict) -> dict[str, Any]:
     )
 
     if decision["error"]:
-        # No verdict means nothing is published — the post waits and retries.
+        # No verdict means nothing is published.
         if dry:
             return {"editor_verdict": decision, "outcome": "editor_error",
                     "rewrite_requested": False}
@@ -418,7 +358,7 @@ async def editor_node(state: dict) -> dict[str, Any]:
     if not decision["approved"]:
         rules = set(decision["rules_broken"])
 
-        # Fixable and not yet rewritten? Back to the writer with the reason.
+        # Fixable and not yet rewritten: back to the writer with the reason.
         if rules and rules <= FIXABLE_RULES and rewrite_count < config.MAX_REWRITES:
             feedback = f"{', '.join(decision['rules_broken'])}: {decision['reason']}"
             log.info("Editor asked for a rewrite of item %s: %s", item["id"], feedback[:150])
@@ -428,7 +368,7 @@ async def editor_node(state: dict) -> dict[str, Any]:
             return {"editor_verdict": decision, "editor_feedback": feedback,
                     "rewrite_count": rewrite_count + 1, "rewrite_requested": True}
 
-        # Final rejection — same handling as the old loop.
+        # Final rejection.
         if not dry:
             db.set_post_status(state["post_id"], "declined")
             db.set_item_status(
@@ -449,7 +389,7 @@ async def editor_node(state: dict) -> dict[str, Any]:
 # =============================================================================
 
 async def publish_node(state: dict) -> dict[str, Any]:
-    """Send the approved post. In dry-run mode this is where we stop and report."""
+    """Send the approved post. Dry-run stops here."""
     if state.get("dry_run"):
         return {"outcome": "approved"}
 

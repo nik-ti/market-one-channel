@@ -1,22 +1,9 @@
-# --- Tidying up text so the same story always looks the same to us ---
-#
-# WHAT THIS FILE DOES
-#   Small text-cleaning helpers used by the duplicate detector. The idea behind
-#   all of them: publishers write the same headline slightly differently every
-#   time — a curly quote here, a trailing slash there — and to a computer those
-#   are completely different strings. These functions strip away the cosmetic
-#   differences so that only real differences remain.
-#
-# WHERE IT FITS
-#   Used by nodes/fetch_rss.py and nodes/fetch_tweets.py when items arrive, and
-#   by nodes/dedup.py when comparing them.
-#
-# WHERE THIS CAME FROM
-#   Adapted from the news-trader bot's ingest.py, which worked these rules out
-#   the hard way over months of real headlines.
-#
-# DEPENDENCIES
-#   Python standard library only.
+"""Text cleaning for the duplicate detector.
+
+Publishers write the same headline slightly differently every time — a curly
+quote, a trailing slash — and to a computer those are different strings. These
+helpers strip the cosmetic differences so only real ones remain.
+"""
 
 from __future__ import annotations
 
@@ -24,10 +11,6 @@ import hashlib
 import re
 from urllib.parse import urlparse, urlunparse
 
-# Publishers reissue the SAME headline with different typography: a curly
-# apostrophe instead of a straight one, an en-dash instead of a hyphen. To a
-# reader those are identical; to a computer they are different text. So we
-# convert the fancy characters to plain ones before comparing anything.
 _PUNCT_FOLD = str.maketrans({
     "‘": "'", "’": "'",     # ' '  curly single quotes
     "“": '"', "”": '"',     # " "  curly double quotes
@@ -36,31 +19,50 @@ _PUNCT_FOLD = str.maketrans({
     " ": " ",                    #      non-breaking space
 })
 
-# After folding we remove punctuation entirely. That is what actually collapses
-#   to 'punish' Iran   and   to ‘punish’ Iran
-# onto one identical key. We keep letters, digits and spaces, nothing else.
 _KEEP_CHARS = re.compile(r"[^a-z0-9 ]+")
 
 # Used to answer "do these two headlines differ ONLY by a number?"
 _DIGIT_RUN = re.compile(r"[0-9]+")
 
-# Tracking junk that sites bolt onto links. Two links that differ only by these
-# point at exactly the same article.
-_TRACKING_PARAMS = ("utm_", "fbclid", "gclid", "mc_cid", "mc_eid", "ref", "source")
+# Sirens, flags and other pictographs. See for_embedding() for why they come off.
+_DECORATION = re.compile(
+    "[\U0001F000-\U0001FAFF"     # pictographs, symbols, flags, transport
+    "☀-➿"              # miscellaneous symbols and dingbats
+    "⬀-⯿←-⇿]"    # arrows and misc symbols
+    "|[︀-️‍⃣]"   # variation selectors, joiners, keycaps
+)
+
+# A cashtag is a dollar sign plus CAPITALS. A money amount like "$66,000" is
+# digits and is deliberately left alone — the number is usually the news.
+_CASHTAG = re.compile(r"\$[A-Z]{2,6}\b")
+
+_ALERT_OPENER = re.compile(r"\b(JUST IN|BREAKING|ALERT|UPDATE|NEW|LATEST)\b:?", re.IGNORECASE)
 
 
-# --- Reduce a web address to its essentials ---
-def normalise_url(url: str) -> str:
-    """Strip the parts of a link that don't change which page it points at.
+def for_embedding(text: str) -> str:
+    """Strip a source's house decoration before measuring what a story means.
 
-    Removes the query string (?utm_source=twitter...), the fragment (#comments),
-    lowercases the domain, and drops a trailing slash. So all of these become
-    one and the same:
+    A tweet and a wire story about the same event are written in opposite
+    registers, and that difference alone sinks the similarity score. Measured:
+    the same Solana vote from CoinDesk and crypto_banter scored 0.7162 raw —
+    under the 0.72 floor, so it published twice — and 0.7786 once the siren,
+    capitals and cashtag came off.
 
-        https://Example.com/news/story/?utm_source=rss
-        https://example.com/news/story
-        https://example.com/news/story#top
+    Numbers are left alone: "$66,000 Bitcoin" and "$71,000 Bitcoin" must stay
+    far apart. Unlike normalise_headline(), this keeps the sentence readable,
+    because an embedding model reads it as language rather than as a key.
     """
+    if not text:
+        return ""
+    cleaned = _DECORATION.sub(" ", text)
+    cleaned = _CASHTAG.sub(" ", cleaned)
+    cleaned = _ALERT_OPENER.sub(" ", cleaned)
+    cleaned = cleaned.translate(_PUNCT_FOLD).lower()
+    return " ".join(cleaned.split())
+
+
+def normalise_url(url: str) -> str:
+    """Drop the query string, fragment and trailing slash, and lowercase the host."""
     if not url:
         return ""
     parsed = urlparse(url.strip())
@@ -68,22 +70,11 @@ def normalise_url(url: str) -> str:
     return urlunparse((parsed.scheme, parsed.netloc.lower(), path, "", "", ""))
 
 
-# --- Reduce a headline to its plain identity ---
 def normalise_headline(title: str) -> str:
-    """Turn a headline into the bare form we use to recognise it again.
+    """Reduce a headline to lowercase letters, digits and single spaces.
 
-    Lowercases it, converts fancy punctuation to plain, removes punctuation
-    entirely, and squashes repeated spaces. For example:
-
-        "US strikes to 'punish' Iran"   ->   "us strikes to punish iran"
-
-    NUMBERS ARE DELIBERATELY KEPT.
-    It is tempting to strip digits too, so that a live-updating headline
-    ("16 dead" becoming "17 dead") collapses onto one key. But numbers are very
-    often the actual news: "Fed cuts 25bp" and "Fed cuts 50bp", or "CPI 3.5%"
-    and "CPI 3.8%", are completely different events and must never be treated as
-    the same story. Slowly-changing numbers are handled instead by the
-    fuzzy-matching step, which has a time limit on it.
+    Digits are deliberately KEPT. "Fed cuts 25bp" and "Fed cuts 50bp" are
+    different events and must never collapse onto one key.
     """
     if not title:
         return ""
@@ -92,17 +83,12 @@ def normalise_headline(title: str) -> str:
     return " ".join(stripped.split())
 
 
-# --- A short fingerprint of a headline ---
 def title_hash(title: str) -> str:
-    """Turn a headline into a fixed-length fingerprint we can look up instantly.
+    """Fingerprint a headline for instant lookup.
 
-    We fingerprint the HEADLINE, not the web address. Some feeds — Google News
-    especially — hand out a different link for the same story each time they are
-    asked, so address-based matching would treat one story as many. The headline
-    stays put.
-
-    A useful side effect: the same story arriving from two different feeds
-    produces the same fingerprint, so we notice it is one story.
+    We hash the headline rather than the URL: some feeds hand out a different
+    link for the same story each time. A side effect is that one story from two
+    feeds produces one fingerprint.
     """
     normalised = normalise_headline(title)
     if not normalised:
@@ -110,41 +96,29 @@ def title_hash(title: str) -> str:
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
-# --- The guard that stops two different numbers being merged ---
 def same_but_for_digits(a: str, b: str) -> bool:
-    """True if two headlines become identical once every number is blanked out.
+    """True if two headlines are identical once every number is blanked out.
 
-    This exists because similarity scoring genuinely cannot tell these apart:
-
-        "16 dead in flooding"  ->  "17 dead in flooding"     same story, updated
-        "Fed cuts rates 25bp"  ->  "Fed cuts rates 50bp"     two different events
-
-    Both are one edited number in otherwise identical text, and both score about
-    97% similar. Only meaning separates them, and we don't have meaning at this
-    stage — so we fall back on which mistake is worse and refuse to merge either.
-
-    The cost is a very occasional duplicate about a rising casualty count. The
-    thing it prevents is quietly publishing "the Fed cut 25 basis points" when
-    the news was 50. That trade is worth making.
+    "16 dead" -> "17 dead" is the same story updated; "Fed cuts 25bp" -> "50bp"
+    is two different events. Both score ~97% similar and only meaning separates
+    them, so we refuse to merge either. The cost is an occasional duplicate
+    about a rising death toll; the thing it prevents is publishing the wrong
+    rate cut.
     """
     return _DIGIT_RUN.sub("#", a) == _DIGIT_RUN.sub("#", b)
 
 
-# --- Clean up a tweet so it reads as a headline ---
 def tweet_to_title(text: str, max_chars: int = 200) -> str:
-    """Take the first meaningful line of a tweet to use as its headline.
+    """Take a tweet's first meaningful line as its headline.
 
-    Tweets have no title field, but the duplicate checks need something
-    headline-shaped. The opening line of a news tweet is almost always the
-    headline, so we take that, drop any trailing links, and cut it short.
+    Tweets have no title field but the duplicate checks need something
+    headline-shaped, and a news tweet's opening line almost always is one.
     """
     if not text:
         return ""
 
-    # Links at the end are the article being linked to, not part of the sentence.
     without_links = re.sub(r"https?://\S+", "", text).strip()
 
-    # Take the first non-empty line.
     first_line = ""
     for line in without_links.splitlines():
         if line.strip():
@@ -163,13 +137,8 @@ def tweet_to_title(text: str, max_chars: int = 200) -> str:
     return first_line[:max_chars]
 
 
-# --- Strip HTML tags out of a block of text ---
 def strip_html(text: str) -> str:
-    """Remove HTML tags and collapse whitespace.
-
-    Feed summaries usually arrive as a chunk of HTML. This is a plain-text
-    fallback for when we don't want to involve a full HTML parser.
-    """
+    """Remove HTML tags and collapse whitespace, without a full parser."""
     if not text:
         return ""
     return " ".join(re.sub(r"<[^>]+>", " ", text).split())

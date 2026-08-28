@@ -57,7 +57,7 @@ OPENROUTER_BASE_URL = _get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
 # FEEDS  ← edit this list
 # =============================================================================
 # name  = short nickname, must be unique
-# topic = "crypto" or "geopolitics" (the AI can override it)
+# topic = "crypto", "markets" or "geopolitics" (the AI can override it)
 #
 # After changing this, run: python3 tools/check_sources.py
 
@@ -81,44 +81,67 @@ SOURCES = [
 #   2. this dictionary
 # Removing it from here alone mutes it for this channel only.
 
+# The topic is only a HINT; the sorter decides. It matters because the hint is
+# the fallback when the sorter cannot be reached.
 X_ACCOUNTS = {
     "WatcherGuru":   "crypto",
     "crypto_banter": "crypto",
     "TreeNewsFeed":  "crypto",
-    "BLS_gov":       "geopolitics",
+    "BLS_gov":       "markets",      # payrolls, CPI — the data itself, not politics
+
+    # Added 28 Aug 2026, all four already tracked by the relay.
+    "glassnode":     "crypto",       # on-chain analytics
+    "BullTheoryio":  "markets",      # indices, FX, yields, the Fed, some crypto
+    "DeItaone":      "markets",      # Walter Bloomberg — central banks, results
+    "Barchart":      "markets",      # equities, metals, commodities
 }
 
 
 # =============================================================================
 # POST APPEARANCE
 # =============================================================================
-# ONE emoji per post, and it is the first character. Nothing else.
+# At most one mark per post, at the front, and often none. The WRITER picks it.
 #
-# It is added by code and never by the AI — the writer is told to use no emoji
-# at all, and any it produces anyway are stripped before sending. A single
-# consistent mark is the channel's whole visual signature, and a model choosing
-# decorative emoji per post destroys that: it once put a 🔥 on a drone strike.
+# WHY A LIST AND NOT A FREE CHOICE: a free choice once put a 🔥 on a drone
+# strike, and banning emoji entirely put the same 🪙 on an ETF approval and an
+# exchange hack. Every mark below is informational rather than emotional, so a
+# wrong pick is merely unhelpful. writer.enforce_mark() removes anything else.
 #
-# There are no hashtags. They were dropped on purpose: two tags covering the
-# whole channel sorted posts the way this desk thinks rather than the way a
-# reader does, and every post carried a line of tag that said almost nothing.
+# No hashtags, on purpose: two tags covering the whole channel sorted posts the
+# way this desk thinks rather than the way a reader does.
 
-TOPIC_EMOJI = {
-    "crypto":      "🪙",
-    "geopolitics": "🌍",
+POST_MARKS = {
+    "🔻": "a price, index or other figure falling",
+    "🔺": "a price, index or other figure rising",
+    "📊": "a scheduled data release or official statistics",
+    "🏛": "a central bank, government or regulator acting",
+    "⚖️": "a court ruling, charge, lawsuit or enforcement action",
+    "🌍": "a development between states — sanctions, tariffs, conflict",
+    "🪙": "a crypto-specific development none of the above fits",
 }
 
-VALID_TOPICS = tuple(TOPIC_EMOJI.keys())
-
-# Shown when a topic somehow isn't one of the above. It should never appear —
-# if you see it in the channel, the sorter returned something unexpected.
-FALLBACK_EMOJI = "📰"
+# "markets" was added 28 Aug 2026. Widening the topic is NOT lowering the bar:
+# the market-impact test in nodes/sorter.py is unchanged and still does the
+# filtering. Such a story is now allowed to be judged, not refused a hearing.
+VALID_TOPICS = ("crypto", "markets", "geopolitics")
 
 # Short sources — typically an X post of a few sentences — become BRIEF posts:
-# they lead with ⚡ instead of the topic emoji and are kept much shorter, because
-# there is nothing to pad a longer post with except invention.
+# kept much shorter, because there is nothing to pad a longer post with except
+# invention.
 BRIEF_SOURCE_CHARS = _get_int("BRIEF_SOURCE_CHARS", 400)
-BRIEF_EMOJI = "⚡"
+
+
+# We store machine names ("crypto_banter"); these are what a reader sees.
+SOURCE_DISPLAY_NAMES = {
+    "crypto_banter":  "Crypto Banter",
+    "WatcherGuru":    "Watcher Guru",
+    "TreeNewsFeed":   "Tree News",
+    "BLS_gov":        "US Bureau of Labor Statistics",
+    "coindesk":       "CoinDesk",
+    "theblock":       "The Block",
+    "guardian_world": "The Guardian",
+    "aljazeera":      "Al Jazeera",
+}
 
 
 # =============================================================================
@@ -149,9 +172,8 @@ TWEET_STREAM_GROUP = _get("TWEET_STREAM_GROUP", "news-channel")
 X_MAX_AGE_MINUTES = _get_int("X_MAX_AGE_MINUTES", 45)
 X_MAX_BURST = _get_int("X_MAX_BURST", 25)
 
-# Articles older than this are ignored. Guards against two real cases: a feed
-# that has been abandoned but still serves its old contents, and a newly added
-# feed handing us its whole back catalogue on the first poll.
+# Guards against an abandoned feed still serving old contents, and a new feed
+# handing over its whole back catalogue on the first poll.
 ARTICLE_MAX_AGE_HOURS = _get_int("ARTICLE_MAX_AGE_HOURS", 24)
 
 # Publishing pace
@@ -178,28 +200,17 @@ MAX_ATTEMPTS = _get_int("MAX_ATTEMPTS", 3)
 FUZZY_THRESHOLD = _get_int("FUZZY_THRESHOLD", 92)
 FUZZY_WINDOW_HOURS = _get_int("FUZZY_WINDOW_HOURS", 24)
 
-# Check 4: same MEANING rather than same words (0.0-1.0).
-#
-# This USED to be a single cutoff at 0.80, and it did not work. Measured on 19
-# hand-labelled pairs from this channel's own history:
-#
-#     real duplicates      scored 0.738 - 0.993
-#     genuinely different  scored 0.785 - 0.900
-#
-# Those ranges overlap, so NO single cutoff can separate them. The 0.80 line let
-# three separate posts about one Fed rate decision go out (they scored 0.738,
-# 0.745 and 0.797) while merging "$49.75M ETF OUTflows" into "$32.11M ETF
-# INflows" at 0.900 — opposite events, a day apart. Lowering the line to 0.72
-# was measured too: it doubled the wrong merges without fixing anything.
-#
-# So the score is no longer a verdict. It is a SHORTLIST, and check 5 decides.
+# Check 4: same MEANING rather than same words (0.0-1.0). The score is a
+# SHORTLIST, not a verdict — check 5 decides.
 #
 #   >= COSINE_CERTAIN    near-verbatim; merge without paying for a judgement
-#   >= COSINE_SHORTLIST  close enough to be worth asking about -> check 5
+#   >= COSINE_SHORTLIST  worth asking about -> check 5
 #   below                different story, no further checks
 #
-# 0.72 was chosen because it caught 100% of the real duplicates in that sample;
-# 0.75 already started missing them.
+# Measured on 19 hand-labelled pairs from this channel: real duplicates scored
+# 0.738-0.993 and genuinely different ones 0.785-0.900. Overlapping ranges, so
+# no single cutoff works — which is why check 5 exists. 0.72 caught 100% of the
+# real duplicates in that sample and 0.75 already started missing them.
 COSINE_SHORTLIST = _get_float("COSINE_SHORTLIST", 0.72)
 COSINE_CERTAIN = _get_float("COSINE_CERTAIN", 0.95)
 COSINE_WINDOW_HOURS = _get_int("COSINE_WINDOW_HOURS", 48)
@@ -208,10 +219,9 @@ COSINE_WINDOW_HOURS = _get_int("COSINE_WINDOW_HOURS", 48)
 # three tweets about one event only ever got compared in pairs.
 DEDUP_TOP_K = _get_int("DEDUP_TOP_K", 3)
 
-# THE TIME GATE. Two items can only be the same event if they arrived close
-# together. In that same sample every real duplicate landed within 10.1 hours,
-# while the worst false merges were 24 hours apart — two days of the same
-# recurring report. This one line removes them for free, before any model runs.
+# THE TIME GATE. Every real duplicate in that sample landed within 10.1 hours;
+# the worst false merges were 24 hours apart — two editions of the same
+# recurring report. This removes them for free, before any model runs.
 DUPLICATE_MAX_GAP_HOURS = _get_int("DUPLICATE_MAX_GAP_HOURS", 12)
 
 EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
@@ -223,9 +233,9 @@ EMBEDDING_DIM = _get_int("EMBEDDING_DIM", 1536)
 # =============================================================================
 # Prompts live at the top of each node file, not here.
 
-# 1. Scores importance and topic. Runs on everything, but that still only costs
-# about $1.50 a month — so this is chosen for JUDGEMENT, not for being cheap.
-# It is the node that decides what matters, which is worth paying for.
+# 1. Scores importance and topic. Runs on everything for about $1.50 a month,
+# so choose it for JUDGEMENT rather than for being cheap — it decides what
+# matters.
 SORTER_MODEL = _get("SORTER_MODEL", "deepseek/deepseek-v3.2")
 
 # 2. Writes the post in the house style. DeepSeek's output is $0.40/M against
@@ -233,78 +243,47 @@ SORTER_MODEL = _get("SORTER_MODEL", "deepseek/deepseek-v3.2")
 # the biggest cost in the pipeline.
 WRITER_MODEL = _get("WRITER_MODEL", "deepseek/deepseek-v3.2")
 
-# 3. Checks the finished post against its source.
+# 3. Checks the finished post against its source. Keep it a DIFFERENT lab from
+# the writer — a model judges its own prose badly.
 #
-# Chosen by testing 9 models on 7 source/post pairs, including a real
-# hallucination this node caught on the live channel. MiniMax M2.7 scored 7/7
-# with nothing missed, at 2.5s per post — the same accuracy as gpt-5-mini but
-# three times faster and half the output price.
-#
-# Others tested: mistral-medium-3.1 also 7/7 but dearer; deepseek-v3.2 missed a
-# falsehood; qwen3.5-plus missed three and took 32s; z-ai/glm-4.7 errored on 5
-# of 7 calls because it REJECTS the strict schema — as does claude-haiku-4.5.
-# That schema is what stops the editor inventing its own rejection reasons, so
-# any model that cannot do it is disqualified no matter how good it is.
-#
-# Keep this a DIFFERENT lab from the writer — a model judges its own prose badly.
+# Chosen by testing 9 models on 7 source/post pairs. MiniMax M2.7: 7/7, 2.5s.
+# mistral-medium-3.1 also 7/7 but dearer; deepseek-v3.2 missed a falsehood;
+# qwen3.5-plus missed three and took 32s; glm-4.7 and claude-haiku-4.5 REJECT
+# the strict schema, which is what stops the editor inventing its own rejection
+# reasons — so they are disqualified however good they are.
 EDITOR_MODEL = _get("EDITOR_MODEL", "minimax/minimax-m2.7")
 
 # Alerts you if the editor starts rejecting an unusual share of posts.
 EDITOR_DECLINE_ALERT_RATE = _get_float("EDITOR_DECLINE_ALERT_RATE", 0.5)
 EDITOR_DECLINE_WINDOW = _get_int("EDITOR_DECLINE_WINDOW", 20)
 
-# The brain's rewrite loop: when the editor rejects a post for a FIXABLE rule
-# (see FIXABLE_RULES in brain/nodes.py), the draft goes back to the writer once
-# with the rejection reason, instead of the post being dropped on the spot.
-# Capped low on purpose — each loop costs another writer + editor call, and a
-# post that needs a third draft was never going to make it.
+# A post rejected for a FIXABLE rule (see FIXABLE_RULES in brain/nodes.py) goes
+# back to the writer with the reason instead of being dropped. Capped low: each
+# loop costs another writer + editor call, and a third draft never makes it.
 MAX_REWRITES = _get_int("MAX_REWRITES", 1)
 
-# Continuations of already-published stories may publish with a lower importance
-# bar than new stories, because the parent story was already vetted. New
-# stories still need MIN_IMPORTANCE.
+# Continuations get a lower bar than new stories: the parent was already vetted.
 CONTINUATION_MIN_IMPORTANCE = _get_int("CONTINUATION_MIN_IMPORTANCE", 3)
 
-# 4. Duplicate check number 5: given two stories that LOOK alike, decide whether
-# they are the same event. This is the only step that can tell "ETF inflows"
-# from "ETF outflows", so it is worth choosing carefully.
-#
-# Chosen by testing three models on 20 hand-labelled pairs from this channel's
-# own history, using the exact prompt in nodes/judge.py:
+# 4. Duplicate check 5 — the only step that can tell "ETF inflows" from "ETF
+# outflows". Tested on 20 hand-labelled pairs from this channel:
 #
 #   deepseek-v3.2           80%, 0 wrong merges, order-STABLE on 6/6 pairs
 #   gemini-2.5-flash-lite   75%, 0 wrong merges, order-FLIPS on 3/6 pairs
-#   minimax-m2.7            unusable — see below
+#   minimax-m2.7            13 of 20 calls failed under concurrency
 #
-# Both got every case that has actually broken the live channel right: the Fed
-# trio AND the ETF inflow/outflow pair. deepseek wins on STABILITY, which is
-# what actually matters here.
+# STABILITY BEATS RAW ACCURACY here. Swapping which story is shown first flipped
+# gemini's verdict on half the hard pairs, and this node deletes content nobody
+# sees again — an unstable verdict is an unreproducible bug. Before switching
+# models, ask for a verdict on (A,B) and (B,A) and check they match.
 #
-# WHY STABILITY BEATS RAW ACCURACY
-# Gemini was faster and looked no worse on paper, but swapping which story is
-# shown first flipped its verdict on half the hard pairs. A judge whose answer
-# depends on argument order is not really judging — and this node deletes
-# content that nobody ever sees again. An unstable verdict means an unreproducible
-# bug: the same two stories merge on Monday and not on Tuesday, and you can never
-# work out why. deepseek gave the same answer both ways on all six.
-#
-# Test it yourself before switching models — ask for a verdict on (A,B) and on
-# (B,A) and check they match. A model that fails that is disqualified regardless
-# of its score.
-#
-# minimax-m2.7 is DISQUALIFIED here even though it is the editor: 13 of 20 calls
-# failed on rate limits and unreadable JSON when run concurrently. The judge
-# fires in bursts by its nature — breaking news arrives all at once — so a model
-# that falls over under concurrency is the wrong tool no matter how accurate.
+# minimax is disqualified despite being the editor: the judge fires in bursts by
+# nature, so a model that falls over under concurrency is the wrong tool.
 JUDGE_MODEL = _get("JUDGE_MODEL", "deepseek/deepseek-v3.2")
 
-# How long to wait for a verdict. Past this we treat the item as new and post it
-# — see "WHICH WAY IT FAILS" at the top of nodes/judge.py.
-#
-# 25s was enough for a normal day (zero timeouts replaying 188 real items) but
-# one call did hit it when 20 were fired at once. Timing out means a duplicate
-# gets published, so the extra headroom is worth more than the wait: this runs
-# inside the 120-second publish tick, which posts at most 2 items anyway.
+# Past this we treat the item as new and post it. 25s was enough for a normal
+# day but one call hit it when 20 fired at once, and a timeout means a duplicate
+# is published — cheap headroom inside a 120-second publish tick.
 JUDGE_TIMEOUT_SECONDS = _get_int("JUDGE_TIMEOUT_SECONDS", 40)
 
 
@@ -312,14 +291,12 @@ JUDGE_TIMEOUT_SECONDS = _get_int("JUDGE_TIMEOUT_SECONDS", 40)
 # BRAIN / PERSONA
 # =============================================================================
 
-# Where the channel's voice lives. The file is plain markdown; the writer prepends
-# it to its system prompt. If the file is missing, the writer falls back to its
-# built-in generic prompt so nothing breaks before the persona is ready.
+# The channel's voice, prepended to the writer's system prompt. A missing file
+# just means the writer's built-in generic prompt.
 PERSONA_PATH = HERE / "brain" / "persona.md"
 
-# How many recent published posts the writer sees as voice examples. More
-# context gives more consistency but costs slightly more per call. 15 is a
-# sweet spot: enough to catch rhythm, not enough to bloat the prompt.
+# Recent posts the writer sees as voice examples: enough to catch the rhythm
+# without bloating the prompt.
 PERSONA_RECENT_POSTS = _get_int("PERSONA_RECENT_POSTS", 15)
 
 

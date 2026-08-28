@@ -1,37 +1,16 @@
-"""
-NODE: Fetch tweets
-PURPOSE: Read new posts from the shared tweet relay and hand them on as items.
-INPUT:   Nothing — it subscribes to a Redis stream that the relay service fills.
-OUTPUT:  Tweet objects (handle, text, link, image), already filtered by age,
-         burst size, and whether we actually follow that account.
-DEPENDENCIES: redis (the async part). Settings from config.
+"""Reads new posts from the shared tweet relay and hands them on as items.
 
-HOW THIS WORKS, IN PLAIN TERMS
-    We do NOT connect to X ourselves. X only allows one connection, and the
-    trading bot's relay service already holds it. That relay copies every tweet
-    into a Redis "stream" — think of it as a shared conveyor belt that any
-    number of programs can watch.
+We do NOT connect to X ourselves — X allows one connection and the trading bot's
+relay holds it, copying every tweet into a Redis stream. Each program watching
+that stream has its own bookmark (a consumer group), so both see every tweet and
+neither can take one from the other.
 
-    Each program watching the belt has its own bookmark, called a consumer
-    group. Ours is called "news-channel"; the trading bot's is called
-    "sniper-ingest". Because the bookmarks are separate, both programs see every
-    single tweet and neither can take one away from the other.
-
-THE ONE IMPORTANT DIFFERENCE FROM THE TRADING BOT
-    When the trading bot restarts, it deliberately jumps its bookmark to the end
-    of the belt and ignores everything it missed. That is right for trading —
-    acting on a ten-minute-old "breaking" tweet is a bug.
-
-    A news channel wants the opposite. If we restart, the tweets that arrived
-    meanwhile are still news, and skipping them leaves a hole. So we keep our
-    place and catch up.
-
-    The danger with catching up is obvious: restart after a long outage and you
-    could dump hundreds of old tweets into the channel at once. Three guards
-    prevent that:
-        1. AGE   — anything older than X_MAX_AGE_MINUTES is binned unread.
-        2. BURST — at most X_MAX_BURST tweets are kept from any one batch.
-        3. The publisher's own hourly limit, as a final backstop.
+UNLIKE THE TRADING BOT, we keep our place across a restart instead of jumping to
+the end. Acting on a ten-minute-old "breaking" tweet is a bug when trading; for
+a news channel, skipping what arrived during a restart leaves a hole. Three
+guards stop a long outage dumping hundreds of old tweets at once: X_MAX_AGE_
+MINUTES bins anything stale unread, X_MAX_BURST caps one batch, and the
+publisher's hourly limit is the backstop.
 """
 
 from __future__ import annotations
@@ -50,29 +29,23 @@ from utils import db, logger as log_setup
 
 log = log_setup.get("tweets")
 
-# Our name as an individual worker within the group. The group is the shared
-# bookmark; this identifies which process is holding it.
+# The group is the shared bookmark; this names the process holding it.
 _CONSUMER_NAME = "news-channel-1"
 
-# How long a single read waits for new tweets before giving up and looping.
-# 20 seconds means an idle channel wakes up three times a minute to check.
+# An idle channel wakes up three times a minute to check.
 _BLOCK_MS = 20_000
 
-# How long we let the network connection sit idle before declaring it dead.
-# THIS MUST BE LONGER THAN THE BLOCK TIME ABOVE. If it isn't, the connection
-# gets killed in the middle of a perfectly normal quiet period — a subtle bug
-# the trading bot hit and documented, so we inherit the fix rather than the bug.
+# MUST BE LONGER THAN THE BLOCK TIME ABOVE, or the connection is killed during
+# a perfectly normal quiet period. The trading bot hit this and documented it.
 _SOCKET_TIMEOUT = _BLOCK_MS / 1000 + 15
 
 # If Redis goes away, wait these many seconds between reconnection attempts.
 _RECONNECT_BACKOFF = [1, 2, 5, 15, 30]
 
-# Remembers whether we have ever connected before, which is what decides between
-# "start fresh" and "catch up".
+# Decides between "start fresh" and "catch up".
 _FIRST_RUN_FLAG = "x_stream_initialised"
 
 
-# --- One tweet ---
 @dataclass(frozen=True)
 class Tweet:
     """A single post from X, exactly as the relay publishes it."""
@@ -90,12 +63,10 @@ class Tweet:
         return self.media[0] if self.media else ""
 
 
-# --- Turn one belt entry into a Tweet ---
 def _parse_entry(fields: dict) -> Tweet | None:
-    """Decode a stream entry into a Tweet, or None if it is unreadable.
+    """Decode a stream entry into a Tweet, or None if unreadable.
 
-    Returning None rather than raising matters: one corrupted message must never
-    be able to stop the whole feed.
+    None rather than raising: one corrupted message must not stop the feed.
     """
     raw = fields.get("data")
     if not raw:
@@ -116,13 +87,11 @@ def _parse_entry(fields: dict) -> Tweet | None:
     )
 
 
-# --- Is this tweet too old to be news? ---
 def _is_too_old(tweet: Tweet) -> bool:
     """True if the tweet is older than our freshness limit.
 
-    A tweet with no timestamp, or an unreadable one, counts as FRESH. We would
-    rather post one slightly stale item than silently drop real breaking news
-    because of a date-parsing quirk.
+    A missing or unreadable timestamp counts as FRESH — better one stale item
+    than dropping breaking news over a date-parsing quirk.
     """
     if not tweet.created_at:
         return False
@@ -138,21 +107,14 @@ def _is_too_old(tweet: Tweet) -> bool:
     return posted < cutoff
 
 
-# --- Apply all three filters to a batch ---
 def _filter_batch(tweets: list[Tweet]) -> list[Tweet]:
-    """Narrow a batch down to the tweets this channel actually wants.
-
-    Three filters, in order:
-      1. Is it from an account we follow? (config.X_ACCOUNTS)
-      2. Is it recent enough?
-      3. Is the batch too big? Keep only the newest few.
-    """
+    """Narrow a batch to what this channel wants: followed account, recent
+    enough, and not more than X_MAX_BURST of them."""
     kept: list[Tweet] = []
     dropped_handle = dropped_old = 0
 
     for tweet in tweets:
-        # The relay carries every account the TRADING BOT follows too. This
-        # dictionary is our own, narrower list.
+        # The relay also carries the trading bot's accounts; this list is ours.
         if tweet.handle not in config.X_ACCOUNTS:
             dropped_handle += 1
             continue
@@ -161,8 +123,7 @@ def _filter_batch(tweets: list[Tweet]) -> list[Tweet]:
             continue
         kept.append(tweet)
 
-    # The burst guard. If a restart hands us a big backlog, keep only the newest
-    # few — the rest is old news by definition.
+    # A restart can hand us a big backlog; the rest is old news by definition.
     dropped_burst = 0
     if len(kept) > config.X_MAX_BURST:
         dropped_burst = len(kept) - config.X_MAX_BURST
@@ -176,15 +137,12 @@ def _filter_batch(tweets: list[Tweet]) -> list[Tweet]:
     return kept
 
 
-# --- Make sure our bookmark exists ---
 async def _prepare_group(redis: aioredis.Redis) -> None:
-    """Create our consumer group, positioned correctly for first run vs restart.
+    """Create our consumer group, positioned for first run vs restart.
 
-    First run ever:  start at the END of the belt. A brand-new install should not
-                     replay the several thousand old tweets sitting in the buffer.
-    Every run after: leave the bookmark exactly where it was, so we catch up on
-                     whatever arrived while we were stopped. This is the one line
-                     that differs from the trading bot, and it is deliberate.
+    First run starts at the END so a new install does not replay thousands of
+    buffered tweets. Every run after leaves the bookmark where it was, so we
+    catch up. That second half is the one place we differ from the trading bot.
     """
     key, group = config.TWEET_STREAM_KEY, config.TWEET_STREAM_GROUP
     first_run = db.meta_get(_FIRST_RUN_FLAG) != "yes"
@@ -196,9 +154,8 @@ async def _prepare_group(redis: aioredis.Redis) -> None:
     except ResponseError as error:
         if "BUSYGROUP" not in str(error):
             raise
-        # The group already exists, which is the normal case on any restart.
-        # We deliberately do NOT move the bookmark here — that is what lets us
-        # catch up on tweets from while we were down.
+        # Normal on any restart. Deliberately do NOT move the bookmark — that
+        # is what lets us catch up on tweets from while we were down.
         if first_run:
             log.info("Consumer group '%s' already existed — resuming from its bookmark", group)
         else:
@@ -207,13 +164,8 @@ async def _prepare_group(redis: aioredis.Redis) -> None:
     db.meta_set(_FIRST_RUN_FLAG, "yes")
 
 
-# --- Read whatever is waiting, right now ---
 async def drain_once(max_wait_ms: int = 2000) -> list[Tweet]:
-    """Collect the tweets currently waiting, then return. Does not loop.
-
-    Used by `main.py collect --once` and by the check tool. Returns an empty list
-    if nothing is waiting, which is the normal case on a quiet minute.
-    """
+    """Collect the tweets currently waiting, then return. Does not loop."""
     key, group = config.TWEET_STREAM_KEY, config.TWEET_STREAM_GROUP
     redis = aioredis.from_url(
         config.REDIS_URL, decode_responses=True, socket_timeout=max_wait_ms / 1000 + 10
@@ -236,9 +188,8 @@ async def drain_once(max_wait_ms: int = 2000) -> list[Tweet]:
                 if tweet is not None:
                     collected.append(tweet)
 
-        # Tell Redis we have these. Safe to do here because the caller stores
-        # them immediately, and storing the same tweet twice is impossible
-        # thanks to the UNIQUE rule in the database.
+        # Safe here: the caller stores them immediately, and the database's
+        # UNIQUE rule makes a double-store impossible.
         if entry_ids:
             await redis.xack(key, group, *entry_ids)
 
@@ -253,15 +204,11 @@ async def drain_once(max_wait_ms: int = 2000) -> list[Tweet]:
     return _filter_batch(collected)
 
 
-# --- Watch the belt continuously ---
 async def stream():
     """Yield batches of tweets as they arrive, reconnecting forever.
 
-    This is what runs in the live service. It gives us tweets within seconds of
-    them being posted, rather than waiting for the next feed-polling cycle.
-
-    Yields LISTS of tweets rather than one at a time, so the age and burst
-    filters can look at a whole batch together.
+    Batches rather than single tweets, so the age and burst filters can look at
+    the whole lot together.
     """
     key, group = config.TWEET_STREAM_KEY, config.TWEET_STREAM_GROUP
     backoff_index = 0
@@ -272,9 +219,7 @@ async def stream():
             config.REDIS_URL, decode_responses=True, socket_timeout=_SOCKET_TIMEOUT
         )
         try:
-            # Set the bookmark up only on the first successful connection. On a
-            # later reconnection after a brief outage we must not touch it —
-            # ">" already resumes from the right place, and re-preparing could
+            # First connection only. Re-preparing after a brief outage could
             # lose the very messages the reconnection was meant to recover.
             if not prepared:
                 await _prepare_group(redis)
@@ -315,9 +260,8 @@ async def stream():
                 if wanted:
                     yield wanted
 
-                # Acknowledge only after the caller has finished storing them.
-                # If we crash before this point, Redis re-delivers on restart and
-                # the database's UNIQUE rule turns the retry into a harmless no-op.
+                # Only after the caller has stored them: a crash before this
+                # point means Redis re-delivers, which UNIQUE makes harmless.
                 if entry_ids:
                     await redis.xack(key, group, *entry_ids)
 

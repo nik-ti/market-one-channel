@@ -1,36 +1,18 @@
-"""
-TOOL: Stats
-PURPOSE: Show what the channel has been doing, and — most importantly — what its
-         filters have been throwing away and why.
-USAGE:   python main.py stats            (last 3 days)
-         python main.py stats --days 7
-         python tools/stats.py --declines (just the editor's rejections, in full)
-         python tools/stats.py --dropped  (real news the importance gate binned)
+"""What the channel has been doing, and what its filters threw away.
 
-THE TWO FILTERS, AND WHY BOTH ARE PRINTED HERE
-    The editor rejects finished posts, and it has been inspectable since day one.
-    The importance gate throws away far more, earlier, and used to be invisible:
-    all you got was a number in a counter. Since it is the gate that decides
-    whether the channel is worth subscribing to, --dropped now shows its work the
-    same way --declines shows the editor's.
+    python main.py stats [--days 7]
+    python tools/stats.py --declines   the editor's rejections, in full
+    python tools/stats.py --dropped    real news the importance gate binned
 
-THE FOUR NUMBERS TO WATCH
-    1. REJECTION RATE. If the editor is turning down more than about a third of
-       finished posts, read its reasons below. It is more likely to be too
-       strict than the news to be that bad. This is the single most important
-       number here, because there is no human check between the editor and your
-       readers.
-
-    2. DUPLICATES BY CHECK. If the "meaning" check never fires, either your
-       sources don't overlap or the threshold is too high. If it fires
-       constantly, it may be merging stories that are genuinely different — the
-       detail lines show you exactly what it merged.
-
-    3. EXPIRED vs PUBLISHED. If more items expire than get published, you are
-       gathering far more news than you allow yourself to post. Either raise
-       MAX_POSTS_PER_HOUR or remove some noisy sources.
-
-    4. POSTS PER DAY. Does the pace feel right as a reader?
+FOUR NUMBERS TO WATCH
+  1. Rejection rate. Over about a third means the editor is more likely too
+     strict than the news that bad — and nothing human sits between it and your
+     readers.
+  2. Duplicates by check. A "meaning" check that never fires means the threshold
+     is too high; one that fires constantly may be merging different stories.
+  3. Expired vs published. More expiring than publishing means you gather far
+     more than you allow yourself to post.
+  4. Posts per day. Does the pace feel right as a reader?
 """
 
 from __future__ import annotations
@@ -60,7 +42,6 @@ def report(days: int = 3) -> None:
     print(f"  NEWS CHANNEL — the last {days} day(s)")
     print(f"{'=' * 74}")
 
-    # --- What is sitting in the database right now ---
     _section("Where everything stands")
     rows = db.query("SELECT status, COUNT(*) n FROM items GROUP BY status ORDER BY n DESC")
     if not rows:
@@ -69,7 +50,6 @@ def report(days: int = 3) -> None:
     for row in rows:
         print(f"   {row['status']:<18} {row['n']:>6}")
 
-    # --- Published posts per day ---
     _section("Published")
     rows = db.query(
         f"""
@@ -90,7 +70,6 @@ def report(days: int = 3) -> None:
     else:
         print("   Nothing published yet.")
 
-    # --- The editor: the number that matters most ---
     _section("The editor")
     rows = db.query(
         f"""
@@ -137,7 +116,6 @@ def report(days: int = 3) -> None:
     else:
         print("   The editor hasn't judged anything yet.")
 
-    # --- The importance gate: the other filter, and the bigger one ---
     _section("The importance gate")
     rows = db.market_breakdown(days)
     if rows:
@@ -165,7 +143,6 @@ def report(days: int = 3) -> None:
     else:
         print("   Nothing scored yet.")
 
-    # --- Duplicates, broken down by which check caught them ---
     _section("Duplicates caught")
     rows = db.query(
         f"""
@@ -202,7 +179,6 @@ def report(days: int = 3) -> None:
         print("   sources don't overlap — or it is not running at all. Those look")
         print("   identical from here, so confirm with: python3 tools/check_dedup.py")
 
-    # --- Are we collecting more than we can post? ---
     _section("Intake versus output")
     today = db.get_counters()
     if today:

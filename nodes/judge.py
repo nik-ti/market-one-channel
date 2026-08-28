@@ -1,59 +1,24 @@
-"""
-AI NODE: Judge
-PURPOSE: Given two stories that LOOK alike, decide if they are the same event.
-INPUT:   The new item, and one candidate it might be a repeat of.
-OUTPUT:  True = same event (drop the new one), False = genuinely different.
-DEPENDENCIES: utils/openrouter.py, utils/db.py (for the audit log)
+"""Given two stories that LOOK alike, decides whether they are the same event.
 
-WHY THIS NODE HAD TO EXIST
-    Duplicate check 4 turns each story into a list of numbers describing its
-    meaning, then measures how closely two lists point the same way. That works
-    beautifully on long articles and badly on short ones, and most of what this
-    channel reads is short.
+WHY A MODEL AND NOT A NUMBER. Embeddings work well on long articles and badly on
+short ones, and most of what this channel reads is short. A 40-word tweet gives
+the measurement little but its SUBJECT: "Fed" plus "rates" plus a percentage
+lands in the same place whether the Fed raised, cut or held. Measured on 19
+hand-labelled pairs from this channel, real duplicates scored 0.738-0.993 and
+genuinely different ones 0.785-0.900 — overlapping ranges, so no cutoff anywhere
+can separate them. Lowering it from 0.80 to 0.72 caught every real duplicate and
+DOUBLED the wrong merges. It is the wrong instrument, not a tuning problem.
 
-    The reason is simple once you see it. A 40-word tweet gives the measurement
-    almost nothing to work with except its SUBJECT. "Fed" plus "rates" plus a
-    percentage lands in the same place whether the Fed raised, cut, or held.
-    So the score answers "are these about the same thing?" when the question we
-    actually need answered is "are these the same happening?"
+Two live failures it fixes: three posts about one Fed decision published minutes
+apart (0.738, 0.745, 0.797 against a 0.80 cutoff), and "$49.75M ETF OUTflows"
+merged into "$32.11M ETF INflows" at 0.900.
 
-    Measured on 19 hand-labelled pairs from this channel's own history:
+It is fed by check 4 rather than replacing it — the numbers find a few plausible
+candidates, this rules on them. Roughly 16 calls a day.
 
-        real duplicates      scored 0.738 - 0.993
-        genuinely different  scored 0.785 - 0.900
-
-    The ranges overlap, which means no cutoff anywhere can separate them. That
-    is not a tuning problem to be solved with a better number — it is the wrong
-    instrument. Two real failures on the live channel:
-
-      MISSED   Three posts about one Fed rate decision, minutes apart, from
-               TreeNews, WatcherGuru and crypto_banter. They scored 0.738,
-               0.745 and 0.797 against a 0.80 cutoff.
-
-      WRONGLY  "$49.75M ETF OUTflows" was merged into "$32.11M ETF INflows"
-      MERGED   at 0.900. Opposite events, a day apart. The story never posted.
-
-    This node reads both stories properly and answers the real question. On that
-    same sample it got every one of those cases right.
-
-WHERE IT SITS
-    It does not replace check 4, it is fed by it. The numbers do the cheap work
-    of finding a handful of plausible candidates out of everything from the last
-    two days; this node does the expensive work of ruling on them. Roughly 16
-    calls a day at current volume — a few cents a month.
-
-WHY NOT JUST LOWER THE CUTOFF
-    Measured, not assumed. Dropping it from 0.80 to 0.72 caught every real
-    duplicate and DOUBLED the wrong merges, from three to six. There is no
-    setting of that one number that makes this better.
-
-WHICH WAY IT FAILS
-    OPEN. If the model cannot be reached, times out, or answers with nonsense,
-    we return "not a duplicate" and the story posts. This matches
-    nodes/dedup.py and is the opposite of nodes/editor.py. An accidental repeat
-    is an embarrassment; a channel that goes quiet because a provider had a bad
-    afternoon is a failure. Every such fallback is logged as a `judge_error`
-    counter so you can see it in tools/stats.py rather than guessing.
+IT FAILS OPEN: unreachable or nonsense means "not a duplicate" and the story
+posts, matching dedup.py and opposite to editor.py. Every fallback is counted as
+`judge_error` so it shows up in tools/stats.py.
 """
 
 from __future__ import annotations
@@ -66,12 +31,9 @@ from utils import db, logger as log_setup, openrouter
 log = log_setup.get("judge")
 
 
-# ============================================================================
-# THE BINARY PROMPT (kept for backwards compatibility with tools/check_dedup.py)
-# ============================================================================
-# Written against the cases that actually went wrong. The "NOT the same event"
-# list is not padding — every line is a real pair this channel got wrong or
-# nearly got wrong, and removing one will bring that failure back.
+# --- The binary prompt (kept for tools/check_dedup.py) ---
+# Every line of the "NOT the same event" list is a real pair this channel got
+# wrong or nearly got wrong. Removing one brings that failure back.
 
 SYSTEM = """You decide whether two news items report THE SAME SPECIFIC EVENT.
 
@@ -107,9 +69,7 @@ SCHEMA = {
 }
 
 
-# ============================================================================
-# THE THREE-WAY PROMPT (used by the brain to detect continuations)
-# ============================================================================
+# --- The three-way prompt (used by the brain to detect continuations) ---
 # Same judge, but now it also distinguishes "this is a new development of a
 # story we are already covering" from "this is a completely different story".
 # That distinction is what lets the channel thread developing events instead of
@@ -170,9 +130,8 @@ SCHEMA_THREE_WAY = {
 def _describe(item, when: str) -> str:
     """Render one item for the prompt.
 
-    The timestamp is included deliberately. Several of the hardest pairs are
-    recurring reports that differ ONLY by date, and the model cannot see that
-    unless we tell it.
+    The timestamp is deliberate: the hardest pairs are recurring reports that
+    differ ONLY by date, which the model cannot see unless told.
     """
     title = (item["title"] or "").strip()
     body = (item["body"] or "").strip()[:300]
@@ -180,7 +139,6 @@ def _describe(item, when: str) -> str:
     return f"[{source}, {when}]\n{title}\n{body}".strip()
 
 
-# --- Internal: ask the judge once with one of the two prompts ---
 async def _judge(item, candidate, *, system: str, schema: dict,
                  schema_name: str) -> dict | None:
     """Call the judge model once and return the parsed reply, or None on failure.
@@ -220,16 +178,11 @@ async def _judge(item, candidate, *, system: str, schema: dict,
     return answer
 
 
-# --- The node's entry point: binary verdict (kept for dedup.py compatibility) ---
 async def execute(item, candidate) -> tuple[bool | None, str]:
-    """Rule on one pair. Returns (same_event, reason).
+    """Rule on one pair. Returns (same_event, reason); None means no answer.
 
-    same_event is None when we could not get an answer — the caller treats that
-    as "not a duplicate" and posts. See "WHICH WAY IT FAILS" above.
-
-    A verdict of "continuation" is treated as NOT a duplicate here, because
-    this function answers the dedup question. Continuations are picked up by
-    the brain in brain/nodes.py via execute_three_way.
+    "continuation" counts as NOT a duplicate here — the brain picks those up
+    via execute_three_way.
     """
     answer = await _judge(item, candidate, system=SYSTEM, schema=SCHEMA,
                           schema_name="same_event")
@@ -249,17 +202,10 @@ async def execute(item, candidate) -> tuple[bool | None, str]:
     return same, reason
 
 
-# --- Three-way verdict: same_event / continuation / different ---
 async def execute_three_way(item, candidate) -> tuple[str | None, str]:
-    """Classify a pair's relationship for the brain.
+    """Classify a pair for the brain: same_event | continuation | different.
 
-    Returns (verdict, reason). Verdict is one of:
-        "same_event"   → drop as a duplicate
-        "continuation" → a genuine new development; reply to the older post
-        "different"    → unrelated or different happening; treat as a new story
-
-    Returns (None, reason) when the judge cannot be reached — callers must fail
-    open (treat as "different" so the story at least gets considered).
+    (None, reason) when the judge cannot be reached — callers must fail open.
     """
     answer = await _judge(item, candidate, system=SYSTEM_THREE_WAY,
                           schema=SCHEMA_THREE_WAY, schema_name="relationship")
@@ -280,20 +226,14 @@ async def execute_three_way(item, candidate) -> tuple[str | None, str]:
     return verdict, reason
 
 
-# --- Sanity check: is the judge stable when the items are shown in reverse order?
-# This matters because a judge that flips its answer depending on argument order
-# will produce unreproducible bugs: the same two stories merge on Monday and not
-# on Tuesday. The original config.py comment caught this on a real model.
+# A judge that flips its answer with argument order produces unreproducible
+# bugs: the same pair merges on Monday and not on Tuesday.
 async def test_order_stability(pairs: list[tuple[dict, dict, str]],
                                description: str = "") -> dict:
     """Run execute_three_way on each pair both ways and report any flips.
 
-    Args:
-        pairs: list of (newer_item, older_item, expected_verdict).
-        description: optional label for the report.
-
-    Returns a dict with mismatches and the raw verdicts. Safe to call with real
-    pairs from the channel's history before trusting the new prompt live.
+    Safe to call with real pairs from the channel's history before trusting a
+    new prompt live.
     """
     results = {
         "description": description,
