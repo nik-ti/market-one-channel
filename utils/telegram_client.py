@@ -69,7 +69,6 @@ async def close() -> None:
         _bot = None
 
 
-# --- Work out the public link to a message we posted ---
 def build_post_url(message_id: int) -> str:
     """Return the shareable link to one of our channel messages.
 
@@ -93,7 +92,6 @@ def _is_formatting_problem(error: Exception) -> bool:
     return any(complaint in text for complaint in _FORMATTING_COMPLAINTS)
 
 
-# --- Send a plain text post ---
 async def send_text(html: str, reply_to_message_id: int | None = None) -> int:
     """Send a text message to the channel. Returns Telegram's message number.
 
@@ -148,7 +146,6 @@ async def send_text(html: str, reply_to_message_id: int | None = None) -> int:
         return message.message_id
 
 
-# --- Send a post with a picture ---
 async def send_photo(image_url: str, caption_html: str,
                      reply_to_message_id: int | None = None) -> int:
     """Send a photo with the post as its caption. Returns the message number.
@@ -203,7 +200,6 @@ async def send_photo(image_url: str, caption_html: str,
         return message.message_id
 
 
-# --- Check the channel is reachable before relying on it ---
 async def verify_channel() -> tuple[bool, str]:
     """Check the bot can actually post to the configured channel.
 

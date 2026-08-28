@@ -1,26 +1,15 @@
-"""
-BRAIN NODES — one function per station of the editorial graph.
+"""One function per station of the editorial graph.
 
-PURPOSE: These are thin wrappers. Each one calls an existing node module
-         (dedup, sorter, writer, editor, publisher) with the same arguments the
-         old hand-written loop used, and records the result into the graph
-         state. The intelligence still lives in nodes/*.py — this file is the
-         assembly line that moves an item between them.
+Thin wrappers: each calls a module in nodes/ and records the result into the
+graph state. The intelligence lives there; this file is the assembly line.
 
-DRY RUN MODE
-    Every node takes the same item through the same decisions in both modes,
-    but in dry-run mode nothing is published, no posts are written, no editor
-    verdicts are recorded and no item statuses change. That is what lets
-    tools/test_brain.py rehearse the exact live pipeline without touching the
-    channel. (Duplicate checks DO still mark items, exactly as
-    tools/dry_run.py always has — a confirmed duplicate is a fact, not a
-    rehearsal side effect.)
+DRY RUN takes an item through the same decisions but publishes nothing, writes
+no posts and changes no statuses — that is how tools/test_brain.py rehearses the
+live pipeline. Duplicate checks DO still mark items: a confirmed duplicate is a
+fact, not a rehearsal side effect.
 
-RETRY SEMANTICS
-    Identical to the old loop: a model that cannot be reached bumps the item's
-    attempt counter and the item is left queued for the next tick. After
-    config.MAX_ATTEMPTS it is marked failed. The graph does not invent new
-    failure behaviour; it calls the same db functions in the same situations.
+A model that cannot be reached bumps the item's attempt counter and leaves it
+queued. After config.MAX_ATTEMPTS it is marked failed.
 """
 
 from __future__ import annotations
@@ -34,25 +23,16 @@ from utils import db, logger as log_setup
 
 log = log_setup.get("brain")
 
-# Editor rejections the writer can actually do something about. These are
-# problems of EXECUTION — the post misstates the source, drops a hedge, stops
-# mid-sentence, breaks a tag, overruns the length. Sending those back for one
-# more draft is worthwhile.
-#
-# The other five rules (NO_NEWS, WRONG_TOPIC, HYPE, INJECTION, UNSAFE) are
-# problems of CONTENT — no rewrite of the same source fixes them, so those
-# posts are dropped on the spot exactly as before.
+# Problems of EXECUTION, which one more draft can fix. The other five rules
+# (NO_NEWS, WRONG_TOPIC, HYPE, INJECTION, UNSAFE) are problems of CONTENT — no
+# rewrite of the same source fixes those, so they are dropped on the spot.
 FIXABLE_RULES = frozenset({
     "FACTUAL_DRIFT", "OVERCLAIM", "INCOMPLETE", "BROKEN_HTML", "TOO_LONG",
 })
 
 
-# =============================================================================
-# ROUTING HELPERS
-# =============================================================================
-# Conditional edges in brain/graph.py call these. The convention: a node sets
-# state["outcome"] when the item's journey is over (published, dropped,
-# retry...). An empty outcome means "carry on to the next station".
+# Conditional edges in brain/graph.py call these. A node sets state["outcome"]
+# when the item's journey is over; an empty outcome means "carry on".
 
 def route_after_relationship(state: dict) -> str:
     if state.get("outcome"):
@@ -85,21 +65,10 @@ def route_after_editor(state: dict) -> str:
     return "publish"
 
 
-# =============================================================================
-# STATION 1: have we already covered this story?
-# =============================================================================
-
 async def relationship_check(state: dict) -> dict[str, Any]:
-    """Classify the item's relationship to recent stories.
+    """Classify the item as duplicate, continuation, or new.
 
-    Possible results:
-      * duplicate     → same event; drop
-      * continuation  → same developing story, new development; thread as reply
-      * new           → unrelated or different story; carry on normally
-
-    In live mode this node records the classification itself (rather than
-    calling dedup.execute, which would only know "duplicate"). In dry-run mode
-    it uses dedup.classify(), which leaves item statuses alone.
+    A continuation is threaded as a reply to the story it continues.
     """
     item = state["item"]
     item_id = item["id"]
@@ -130,12 +99,11 @@ async def relationship_check(state: dict) -> dict[str, Any]:
     return {"relationship": "new"}
 
 
-# --- Fetch the published post a continuation will reply to ---
 async def fetch_parent(state: dict) -> dict[str, Any]:
-    """For a continuation, look up the original published Telegram message.
+    """Look up the Telegram message a continuation will reply to.
 
-    If the older item was never actually published, a reply is impossible, so
-    we fall back to treating this as a new standalone story.
+    If the older item was never published a reply is impossible, so it falls
+    back to a new standalone story.
     """
     matched_id = state.get("matched_item_id")
     if not matched_id:
@@ -152,10 +120,6 @@ async def fetch_parent(state: dict) -> dict[str, Any]:
         "parent_post_html": parent["post_html"],
     }
 
-
-# =============================================================================
-# STATION 2: is this worth covering, and what is it?
-# =============================================================================
 
 async def sorter_node(state: dict) -> dict[str, Any]:
     """Score the item. Same call, same gates, same statuses as the old loop."""

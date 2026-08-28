@@ -1,22 +1,12 @@
-"""
-TOOL: Check sources
-PURPOSE: Fetch every feed in config.SOURCES once and report which ones work.
-USAGE:   python tools/check_sources.py
+"""Fetches every feed in config.SOURCES once and reports which ones work.
 
-WHAT IT DOES
-    Reads each feed, then prints whether it worked, how many articles came back,
-    and three sample headlines so you can judge whether it's the content you
-    actually want.
+    python tools/check_sources.py
 
-WHAT IT DOES NOT DO
-    It writes NOTHING to the database and sends NOTHING to Telegram. It is
-    completely safe to run as often as you like, including on a live system.
+Prints whether each feed worked, how many articles came back, and three sample
+headlines. Writes nothing and sends nothing, so it is safe on a live system.
 
-WHEN TO USE IT
-    - Right after adding or changing a feed in config.SOURCES
-    - When the channel goes quiet and you want to know if a source has broken
-    - Run it TWICE in a row: the second run should show several feeds as
-      "unchanged", which proves the free-polling trick is working.
+Run it twice in a row: the second run should show several feeds "unchanged",
+which proves the free-polling trick is working.
 """
 
 from __future__ import annotations

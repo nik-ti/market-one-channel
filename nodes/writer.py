@@ -1,35 +1,17 @@
-"""
-AI NODE: Writer
-PURPOSE: Rewrite a story into one consistent house style for the channel.
-INPUT:   An item (headline, text, source) plus whether it will carry an image.
-OUTPUT:  A finished post as Telegram-flavoured HTML. Empty string means "try again".
-DEPENDENCIES: utils/openrouter.py
+"""Rewrites a story into one house style, so the channel sounds like one writer.
 
-WHY THIS NODE EXISTS
-    Every source writes differently. CoinDesk is dry, Cointelegraph is breathless,
-    a WatcherGuru tweet is ALL CAPS WITH SIRENS. Posting those side by side makes
-    the channel read like a scrapbook. This node flattens all of it into one
-    voice, so the channel sounds like a single writer.
+Every source writes differently — CoinDesk is dry, a WatcherGuru tweet is ALL
+CAPS WITH SIRENS — and posting those side by side reads like a scrapbook.
 
-WHY THE PROMPT LOOKS THE WAY IT DOES
-    It is adapted from the post writer in systems/news-saas, which was itself
-    refined from the nmd_consulting channels. Most of the odd-looking sections
-    are scar tissue from real failures:
+Most of the odd-looking sections of PROMPT are scar tissue from real failures:
+"Core Rule" because models otherwise reply with commentary about why they can't
+write the post; "Untrusted input" because half our input is arbitrary tweets
+anyone can write anything into; "Factual Accuracy" because models quietly
+upgrade "proposed" to "launched"; "Plain Language" because they mirror the
+inflated prose of the source instead of translating it.
 
-    * "Core Rule" exists because models otherwise refuse and reply with
-      commentary about why they can't write the post.
-    * "Untrusted input" exists because roughly half our input is arbitrary
-      tweets, which anyone can write anything into — including instructions
-      aimed at this very prompt.
-    * "Factual Accuracy" exists because models quietly upgrade "proposed" into
-      "launched" and "could" into "will". On a news channel that is the worst
-      thing that can happen.
-    * "Plain Language" exists because models mirror the inflated prose of their
-      source instead of translating it into plain English.
-
-WHY IT RETURNS HTML AND NOT JSON
-    Wrapping HTML inside JSON means escaping quotes inside tags inside a string.
-    That goes wrong often enough to matter, and gains us nothing.
+It returns HTML rather than JSON because escaping quotes inside tags inside a
+string goes wrong often enough to matter and gains nothing.
 """
 
 from __future__ import annotations
@@ -42,33 +24,25 @@ from utils import logger as log_setup, openrouter
 
 log = log_setup.get("writer")
 
-# ============================================================================
-# AI CONFIGURATION  (this is the block to edit when tuning the writing style)
-# ============================================================================
-
+# --- AI configuration: the block to edit when tuning the writing style ---
 MODEL = config.WRITER_MODEL
 
-# Temperature controls how much the model varies its wording. 0.0 means it picks
-# the most likely phrasing every time; higher numbers let it wander.
-# 0.2 keeps the posts tight and consistent, which is what a news channel wants —
-# the house style should sound the same every time, not creative.
+# Low on purpose: the house style should sound the same every time.
 TEMPERATURE = 0.2
 MAX_TOKENS = 900
 
-# Three length rules, picked per post. We ASK for the right length rather than
-# writing long and cutting, because cutting produces posts that stop mid-sentence.
+# We ASK for the right length rather than writing long and cutting, because
+# cutting produces posts that stop mid-sentence.
 LENGTH_RULE_TEXT = "70-100 words. Three short paragraphs at most."
 
-# Telegram allows 4096 characters for a message but only 1024 for a caption
-# under a photo, so a post with a picture has to be shorter.
+# Telegram caps captions at 1024 against 4096 for plain text.
 LENGTH_RULE_IMAGE = (
     "45-65 words. This one is going out as a caption under a picture, and "
     "Telegram cuts captions off at 1024 characters, so it MUST be short. "
     "Two short paragraphs at most."
 )
 
-# A short X post has almost no material in it. Anything longer than a few lines
-# would have to be padded, and padding a news post means inventing.
+# A short X post has no material to pad with, and padding means inventing.
 LENGTH_RULE_BRIEF = (
     "25-45 words. ONE short paragraph, occasionally two.\n"
     "\n"
@@ -90,21 +64,11 @@ LENGTH_RULE_BRIEF = (
     "single invented detail is a failure that gets the whole post thrown away."
 )
 
-# The writer chooses the mark, from a closed list, and usually chooses none.
-#
-# Two earlier versions of this rule both failed, in opposite directions. First
-# the model was allowed "1-3 emoji that complement the content" and put a 🔥 on
-# a drone strike — choosing an emoji is a judgement about tone, and it made that
-# judgement badly on exactly the stories where tone matters. Then emoji were
-# banned outright and the publisher stamped a fixed topic mark on the front,
-# which was safe and dead: the same 🪙 on an ETF approval and on an exchange
-# hack.
-#
-# config.POST_MARKS is the middle path, and the safety net the free choice never
-# had. Every mark on it is informational rather than emotional, so a bad pick is
-# merely unhelpful — it cannot celebrate a disaster. enforce_mark() below
-# deletes anything that is not on the list, so this rule does not depend on the
-# model complying with it.
+# Two earlier versions failed in opposite directions: a free choice put a 🔥 on
+# a drone strike, and banning emoji entirely put the same 🪙 on an ETF approval
+# and an exchange hack. config.POST_MARKS is the middle path — every mark on it
+# is informational rather than emotional, so a bad pick is merely unhelpful.
+# enforce_mark() deletes anything else, so this does not rely on compliance.
 def _build_emoji_rule() -> str:
     """Compose the emoji instruction from the whitelist in config."""
     marks = "\n".join(f"  {mark} — {meaning}"
@@ -228,7 +192,6 @@ Trading starts Tuesday. BlackRock and Fidelity are among the issuers, with fees 
 Now write the post for the story below."""
 
 
-# --- Tidy up the model's output ---
 _FENCE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")
 
 # Models sometimes open with a sentence about what they're about to do, despite

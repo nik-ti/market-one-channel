@@ -1,51 +1,24 @@
-"""
-AI NODE: Editor
-PURPOSE: Read the finished post against its source and decide: publish, or bin it.
-INPUT:   The written post, plus the original headline and text to check it against.
-OUTPUT:  {verdict, rules_broken, reason, confidence}
-DEPENDENCIES: utils/openrouter.py, utils/db.py (for the audit log)
+"""Reads the finished post against its source and decides: publish, or bin it.
 
-WHY A DIFFERENT MODEL FROM THE WRITER
-    A model is a poor judge of its own writing — it tends to approve prose that
-    sounds like its own habits. Using a different provider entirely gives a
-    genuinely independent second opinion. That is why EDITOR_MODEL defaults to a
-    different family from WRITER_MODEL, and why you should keep it that way even
-    if you change them.
+EDITOR_MODEL is deliberately a different family from WRITER_MODEL. A model is a
+poor judge of its own writing — keep them apart if you change either.
 
-WHY THIS FILE IS SO CAREFUL — READ THIS BEFORE CHANGING ANYTHING
-    There is a node exactly like this one in another project on this machine
-    (nmd_consulting). It quietly destroyed 110 out of 712 finished posts —
-    about 15% — because its rejection list included the ordinary Russian word
-    for "however". Nobody noticed for months, because nothing anywhere recorded
-    WHY a post had been rejected. Real money and real content, gone.
+READ THIS BEFORE CHANGING ANYTHING. A node like this one in nmd_consulting
+quietly destroyed 110 of 712 finished posts because its rejection list included
+the ordinary Russian word for "however", and nobody noticed for months because
+nothing recorded WHY a post was rejected. Four safeguards stop that here:
 
-    That must not happen here, and since posts go straight to the live channel
-    with no human check, this node is the last thing standing between the model
-    and your readers. Four safeguards:
+  1. It can only reject by naming a rule from RULES below, enforced by the
+     provider's strict mode. A rejection naming no rule is treated as an
+     APPROVAL and logged. It cannot kill a post because it feels off.
+  2. EVERY decision is recorded, approvals included — a rejection rate is
+     meaningless unless you also counted the approvals.
+  3. Rejecting more than half of the last 20 posts sends you a Telegram alert.
+  4. tools/stats.py prints rejections grouped by rule.
 
-      1. It can only reject a post by naming a rule from a FIXED LIST.
-         "Strict" mode means the provider enforces the list, so the model
-         cannot invent a new reason. If it rejects a post without naming a
-         rule, we treat that as an APPROVAL and log the malformed answer. It
-         cannot kill a post because it feels off.
-
-      2. EVERY decision is recorded — approvals as well as rejections — with
-         the rule codes, the reason, and the exact text it was judging. A
-         rejection rate is meaningless unless you also counted the approvals.
-
-      3. If it rejects more than half of the last 20 posts, you get a Telegram
-         message. That much rejection almost always means the editor is broken,
-         not the posts.
-
-      4. tools/stats.py prints rejections grouped by rule, with the full text of
-         recent ones, so you can see whether it is right.
-
-WHICH WAY IT FAILS
-    CLOSED. If the editor cannot be reached, nothing is published — the post
-    waits and is retried. Note this is the OPPOSITE of the duplicate checker,
-    which fails open. The reasoning: an accidental duplicate is a small
-    embarrassment, but unreviewed text on a public channel is not. The
-    asymmetry is deliberate.
+IT FAILS CLOSED: unreachable means nothing is published and the post retries.
+The duplicate checker does the opposite, deliberately — an accidental duplicate
+is a small embarrassment, unreviewed text on a public channel is not.
 """
 
 from __future__ import annotations
@@ -57,30 +30,19 @@ from utils import db, logger as log_setup, openrouter
 
 log = log_setup.get("editor")
 
-# ============================================================================
-# AI CONFIGURATION  (this is the block to edit when tuning the editor)
-# ============================================================================
-
+# --- AI configuration: the block to edit when tuning the editor ---
 MODEL = config.EDITOR_MODEL
 TEMPERATURE = 0.0          # judgements should be consistent, never creative
 
-# WATCH THIS IF YOU CHANGE THE MODEL.
-#   A "reasoning" model works through the problem privately before answering,
-#   and that private thinking counts against this budget. The previous editor
-#   (gpt-5-mini) is one, and at 400 tokens it spent the whole allowance thinking
-#   and never reached its answer — HALF of all editor calls failed that way.
-#
-#   The failure is invisible from outside: the model reports no error, it just
-#   stops. Because this node fails closed, those posts were simply never
-#   published.
-#
-#   MiniMax M2.7 does not do that (measured at 2.5s a post), so 800 is plenty.
-#   If you switch to a reasoning model, put this back up to 2000.
+# WATCH THIS IF YOU CHANGE THE MODEL. A reasoning model thinks privately before
+# answering and that counts against this budget. gpt-5-mini at 400 tokens spent
+# the whole allowance thinking and never reached its answer — HALF of all editor
+# calls failed that way, invisibly, and because this node fails closed those
+# posts were never published. Put it back to 2000 for a reasoning model.
 MAX_TOKENS = 800
 
 # The complete list of reasons a post may be rejected. The model is FORCED to
-# pick from this list — it cannot invent a reason. To let the editor reject
-# something new, you must add it here deliberately, which is the point.
+# pick from it; adding a new reason has to be deliberate.
 RULES = {
     "FACTUAL_DRIFT": "states something the source text does not say, including "
                      "true background the source never mentioned",
@@ -195,7 +157,6 @@ SCHEMA = {
 }
 
 
-# --- Warn if the editor starts rejecting nearly everything ---
 def _check_calibration() -> None:
     """Send a Telegram warning if the rejection rate has gone through the roof.
 
@@ -220,7 +181,6 @@ def _check_calibration() -> None:
         )
 
 
-# --- The node's entry point ---
 async def execute(item, post_html: str, post_id: int, record: bool = True,
                   verbatim: bool = False, attempt: int = 1) -> dict:
     """Judge one finished post. Records the decision either way.

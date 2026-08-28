@@ -1,33 +1,18 @@
-# --- The orchestrator: everything starts here ---
-#
-# WHAT THIS FILE DOES
-#   Runs the news channel. It takes a subcommand so one file can do several jobs:
-#
-#     python main.py initdb     create the database (safe to re-run any time)
-#     python main.py check      check your settings without doing anything
-#     python main.py collect    read the feeds and the tweet stream, once or forever
-#     python main.py publish    turn queued items into posts and send them
-#     python main.py run        do both, forever — this is what the service runs
-#     python main.py stats      print a summary of how things are going
-#
-#   The useful flags:
-#     --once       do one cycle and stop, instead of looping forever
-#     --limit N    only handle N items (handy while testing)
-#
-# WHERE IT FITS
-#   The top of the tree. This file decides WHAT happens WHEN; the actual work
-#   lives in nodes/. Read the flow diagram in README.md alongside this.
-#
-# WHY ONE FILE WITH SUBCOMMANDS
-#   "collect" and "publish" are two separate loops that run at different speeds,
-#   but they share all their settings and their database. Keeping them in one
-#   program means one thing to install, one log, one thing to restart. If web
-#   crawling is ever added, that is the moment to split them into two services —
-#   and because they are already separate subcommands, that split needs no code
-#   changes.
-#
-# DEPENDENCIES
-#   Everything else in this project. Settings from config.py.
+"""Runs the news channel. Decides WHAT happens WHEN; the work lives in nodes/.
+
+    python main.py initdb     create the database (safe to re-run)
+    python main.py check      check settings without doing anything
+    python main.py collect    read the feeds and the tweet stream
+    python main.py publish    turn queued items into posts and send them
+    python main.py run        both, forever — this is what the service runs
+    python main.py stats      print a summary
+
+Flags: --once for a single cycle, --limit N to handle at most N items.
+
+collect and publish are separate loops at different speeds but share settings
+and a database, so they live in one program: one install, one log, one restart.
+They are already separate subcommands, so splitting them later needs no code.
+"""
 
 from __future__ import annotations
 
@@ -41,7 +26,6 @@ from utils import db, logger as log_setup
 log = log_setup.get("main")
 
 
-# --- Stop early if the settings are wrong, instead of failing confusingly later ---
 def _verify_settings(*, need_telegram: bool = False, need_openrouter: bool = False) -> None:
     """Check config and exit with a clear message if something essential is missing."""
     problems = config.check(require_telegram=need_telegram, require_openrouter=need_openrouter)
@@ -54,14 +38,11 @@ def _verify_settings(*, need_telegram: bool = False, need_openrouter: bool = Fal
         sys.exit(1)
 
 
-# --- Set up the database and load the feed list into it ---
 def _prepare_database() -> None:
-    """Create tables, sync the source list, and purge anything no longer wanted.
+    """Create tables, sync the source list, purge items from removed sources.
 
-    The purge matters: deleting a feed or an X handle from config.py has to take
-    effect immediately, not just for future items. Without it, everything
-    already collected from a removed source keeps publishing as though nothing
-    had changed.
+    The purge matters: without it, everything already collected from a source
+    you just deleted keeps publishing as though nothing had changed.
     """
     db.init_db()
     db.sync_sources(config.SOURCES)
@@ -161,11 +142,10 @@ def cmd_run(_args: argparse.Namespace) -> None:
 
 
 async def _supervise(name: str, coro_factory) -> None:
-    """Keep one loop running: if it crashes, alert, wait, and start it again.
+    """Keep one loop running: on a crash, alert, wait, restart.
 
-    Without this, one unhandled error anywhere would stop the whole channel
-    silently. With it, a broken feed parser stops collection for 60 seconds and
-    publishing carries on untouched.
+    Without this one unhandled error stops the whole channel silently. With it,
+    a broken feed parser pauses collection and publishing carries on.
     """
     from utils import telegram_error
 
@@ -220,8 +200,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Tools print to your terminal; the long-running loops also write to the log
-    # file, so there is a record after the fact.
     to_file = args.command in ("collect", "publish", "run")
     log_setup.setup(to_file=to_file)
 

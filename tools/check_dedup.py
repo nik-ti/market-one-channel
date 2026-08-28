@@ -1,28 +1,13 @@
-"""
-TOOL: Check the duplicate detector
-PURPOSE: Answer the one question the database could not: is the MEANING check
-         actually working, and if it is, is its shortlist floor set right?
-USAGE:   python3 tools/check_dedup.py                  the health report
-         python3 tools/check_dedup.py --pairs 30       score recent posts against each other
-         python3 tools/check_dedup.py --compare "a" "b"  score two pieces of text
+"""Is the MEANING check working, and is its shortlist floor set right?
 
-WHY THIS EXISTS
-    Check 4 fails OPEN: if the embedding service cannot be reached, the item is
-    treated as new and published. That is the right call — a duplicate is a
-    small embarrassment and a silent channel is worse — but it used to happen in
-    complete silence.
+    python3 tools/check_dedup.py                     health report
+    python3 tools/check_dedup.py --pairs 30          score recent posts
+    python3 tools/check_dedup.py --compare "a" "b"   score two pieces of text
 
-    A dedup_hit row is only written when two items MATCH. So "the check ran and
-    found nothing close enough" and "the check never ran at all and everything
-    sailed through" left exactly the same evidence behind: none. When three
-    tweets about one Fed decision went out four minutes apart, there was no way
-    to tell which of those had happened.
-
-    This tool distinguishes them, and it takes about a second.
-
-WHAT IT COSTS
-    A few embedding calls, so a fraction of a cent. It publishes nothing and
-    changes nothing.
+Check 4 fails open, and a dedup_hit row is only written on a MATCH — so "found
+nothing close enough" and "the API was down and everything sailed through" left
+identical evidence: none. This distinguishes them in about a second, for a
+fraction of a cent, and changes nothing.
 """
 
 from __future__ import annotations

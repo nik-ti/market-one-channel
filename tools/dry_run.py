@@ -1,40 +1,17 @@
-"""
-TOOL: Dry run
-PURPOSE: Run real items through the whole pipeline and print the results here,
-         in your terminal. Nothing is sent to Telegram. Nothing is published.
-USAGE:   python tools/dry_run.py                 (10 items)
-         python tools/dry_run.py --limit 25      (more)
-         python tools/dry_run.py --topic crypto  (only one topic)
-         python tools/dry_run.py --declined      (only show what the editor rejects)
+"""Runs real items through the OLD hand-written pipeline and prints the results.
 
-WHY THIS TOOL MATTERS MORE THAN THE OTHERS
-    Posts on this channel go straight out live — there is no admin channel and
-    no approve button. So this is your ONE chance to see what the AI writes, and
-    what the AI editor rejects, before either of them is doing it in public.
+    python tools/dry_run.py [--limit 25] [--topic crypto] [--declined]
 
-    Use it properly:
-      1. Run it over 20-30 real items.
-      2. Read every post. Is that the voice you want for the channel?
-      3. Read every 📉 BELOW THE BAR line. Those are real stories the channel
-         chose not to run, with the market the sorter said would have to
-         reprice. This is where you find out whether the channel is about to be
-         full of things nobody trades on — or about to be silent. Tune it in
-         PROMPT at the top of nodes/sorter.py.
-      4. Read every REJECTION especially carefully. Was the editor right? A
-         project on this machine lost 15% of its finished posts to an editor
-         nobody checked.
-      5. Adjust the prompts — PROMPT at the top of nodes/sorter.py,
-         nodes/writer.py and nodes/editor.py — and run it again. Iteration here
-         is free and instant.
+Posts go out live with no approve button, so this is your one chance to see what
+the writer produces and what the editor rejects before either does it in public.
+Read the BELOW THE BAR lines as carefully as the posts — that is where you find
+out whether the channel is about to be full of things nobody trades on, or
+silent. A project on this machine lost 15% of its finished posts to an editor
+nobody checked.
 
-WHAT IT COSTS
-    About $0.002 per item, so a 25-item run is roughly five cents.
-
-WHAT IT CHANGES
-    It does store the meaning-vectors it works out (that is useful, and they
-    would be computed anyway). It does NOT write posts, record editor verdicts,
-    change any item's status, or send anything. You can run it repeatedly on the
-    same items.
+About $0.002 an item. It stores meaning-vectors (which would be computed
+anyway) but writes no posts, records no verdicts, changes no statuses and sends
+nothing, so it is safe to re-run on the same items.
 """
 
 from __future__ import annotations
@@ -75,7 +52,6 @@ async def _process(item, index: int, total: int, args) -> str:
     title = (item["title"] or "")[:70]
     header = f"[{index}/{total}] {item['source_name']} · {item['origin']}"
 
-    # --- Duplicate checks 3 and 4 ---
     is_duplicate = await dedup.execute(item, with_meaning=True)
     if is_duplicate:
         if not args.declined:
@@ -83,7 +59,6 @@ async def _process(item, index: int, total: int, args) -> str:
             print(f"   🔁 DUPLICATE — {title}")
         return "duplicate"
 
-    # --- Is it worth covering, and what is it? ---
     verdict = await sorter.execute(item)
     if not verdict["relevant"]:
         if not args.declined:
@@ -112,7 +87,6 @@ async def _process(item, index: int, total: int, args) -> str:
     if args.topic and verdict["topic"] != args.topic:
         return "filtered"
 
-    # --- Write it ---
     has_image = bool(item["image_url"])
     post = await writer.execute(item, has_image=has_image)
     if not post:
@@ -127,7 +101,6 @@ async def _process(item, index: int, total: int, args) -> str:
     if args.declined and decision["approved"]:
         return "approved"
 
-    # --- Show it ---
     image_note = "  🖼 with image" if has_image else ""
     brief_note = "  ⚡ brief" if writer.is_brief(item) else ""
     print(f"\n{header}")

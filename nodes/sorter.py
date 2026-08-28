@@ -1,54 +1,19 @@
-"""
-AI NODE: Sorter
-PURPOSE: Decide whether a story is worth covering, what it's about, and how much
-         it matters — before we spend money writing it up.
-INPUT:   An item (headline + the opening of its text + the source's topic guess).
-OUTPUT:  {relevant, topic, market, importance, reason}
-DEPENDENCIES: utils/openrouter.py
+"""Decides whether a story is worth covering, what it is, and how much it matters.
 
-WHY THIS NODE EXISTS
-    It is the main cost control of the whole pipeline. Feeds hand us roughly 300
-    items a day, most of which are not channel material: opinion columns, sports,
-    weekly roundups, thin press releases. Running each through the cheapest
-    available model costs about $0.00007 — and every item it rejects saves the
-    $0.0012 the writer would have cost. It pays for itself many times over.
+THIS IS THE ONLY NODE THAT ASKS "SHOULD WE COVER THIS?" It is easy to assume the
+editor shares the job; it does not — the editor only checks a finished post
+against its source. So if something dull reaches the channel, this prompt is
+what has to change. (An editor allowed to reject on judgement is the editor that
+ate 110 posts in nmd_consulting.)
 
-    It also does the topic sorting, so relevance filtering and topic labelling
-    are one call rather than two.
+It fails OPEN: if the model cannot be reached we fall back to the source's own
+topic guess and a middling importance rather than dropping real news.
 
-WHY IT IS ALLOWED TO BE WRONG
-    If this node fails, we do NOT drop the item. We fall back to the source's own
-    topic guess, set a middling importance, and carry on. The sorter is an optimiser,
-    not a safety gate — the editor node is still downstream and will see the
-    finished post. Better to spend half a cent than to lose real news to a
-    network hiccup.
-
-THIS IS THE ONLY NODE THAT ASKS "SHOULD WE COVER THIS?"
-    Worth being blunt about, because it is easy to assume the editor shares the
-    job. It does not. The editor checks a finished post AGAINST ITS SOURCE —
-    accuracy, hedging, format, safety. Its rule list contains nothing about a
-    story being uninteresting, and that is deliberate: an editor allowed to
-    reject on judgement is the editor that ate 110 posts in nmd_consulting.
-
-    So if something dull reaches the channel, this file is where it got through,
-    and this prompt is what has to change.
-
-WHY IT ASKS WHICH MARKET MOVES
-    The original rubric asked whether something had been "decided, enforced, or
-    broken". That is an EVENT test, and a war generates qualifying events every
-    single day. It let through, among others:
-
-        "Russian retailer evacuates warehouses after drone attacks"
-
-    — a real event, correctly filed as geopolitics, genuinely settled and
-    different from yesterday, and of no use whatsoever to anyone holding a
-    position. It scored 4 because the rubric had no way to ask the only question
-    that matters here: who has to reprice anything?
-
-    So the model now names the market that must be looked at again BEFORE it
-    scores, and "none" is a first-class answer that caps the score at 3. Naming
-    a transmission channel is a concrete claim that can be wrong and can be
-    reviewed later; "feels important" is not.
+The rubric asks which MARKET must be repriced before it scores anything. An
+event test alone let through "Russian retailer evacuates warehouses after drone
+attacks" at a 4 — real, settled, and of no use to anyone holding a position.
+Naming a transmission channel is a claim that can be wrong and reviewed later;
+"feels important" is not.
 """
 
 from __future__ import annotations
@@ -58,19 +23,12 @@ from utils import logger as log_setup, openrouter
 
 log = log_setup.get("sorting")
 
-# ============================================================================
-# AI CONFIGURATION  (this is the block to edit when tuning)
-# ============================================================================
-
+# --- AI configuration: the block to edit when tuning ---
 MODEL = config.SORTER_MODEL
 TEMPERATURE = 0.0          # we want consistent judgements, not creative ones
 
-# 250 was too small and the answers came back cut off mid-value, like this:
-#       {"relevant": true, "topic": "geopolitics", "importance":
-# Gemini models think privately before answering and that thinking counts
-# against this budget, so the allowance has to cover both. The fallback caught
-# it and no news was lost, but every one of those was a wasted call.
-# 800 is ample for an answer that is only four short fields.
+# 250 was too small and answers came back cut off mid-value. A reasoning model
+# thinks privately before answering and that counts against this budget too.
 MAX_TOKENS = 800
 
 PROMPT = """You are the assignment editor for a channel covering MARKET-MOVING news in three areas: cryptocurrency, markets, and geopolitics.
@@ -299,7 +257,6 @@ SCHEMA = {
 }
 
 
-# --- The node's entry point ---
 async def execute(item) -> dict:
     """Judge one item. Always returns a usable answer, even when the model fails.
 

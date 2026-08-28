@@ -1,59 +1,24 @@
-"""
-AI NODE: Judge
-PURPOSE: Given two stories that LOOK alike, decide if they are the same event.
-INPUT:   The new item, and one candidate it might be a repeat of.
-OUTPUT:  True = same event (drop the new one), False = genuinely different.
-DEPENDENCIES: utils/openrouter.py, utils/db.py (for the audit log)
+"""Given two stories that LOOK alike, decides whether they are the same event.
 
-WHY THIS NODE HAD TO EXIST
-    Duplicate check 4 turns each story into a list of numbers describing its
-    meaning, then measures how closely two lists point the same way. That works
-    beautifully on long articles and badly on short ones, and most of what this
-    channel reads is short.
+WHY A MODEL AND NOT A NUMBER. Embeddings work well on long articles and badly on
+short ones, and most of what this channel reads is short. A 40-word tweet gives
+the measurement little but its SUBJECT: "Fed" plus "rates" plus a percentage
+lands in the same place whether the Fed raised, cut or held. Measured on 19
+hand-labelled pairs from this channel, real duplicates scored 0.738-0.993 and
+genuinely different ones 0.785-0.900 — overlapping ranges, so no cutoff anywhere
+can separate them. Lowering it from 0.80 to 0.72 caught every real duplicate and
+DOUBLED the wrong merges. It is the wrong instrument, not a tuning problem.
 
-    The reason is simple once you see it. A 40-word tweet gives the measurement
-    almost nothing to work with except its SUBJECT. "Fed" plus "rates" plus a
-    percentage lands in the same place whether the Fed raised, cut, or held.
-    So the score answers "are these about the same thing?" when the question we
-    actually need answered is "are these the same happening?"
+Two live failures it fixes: three posts about one Fed decision published minutes
+apart (0.738, 0.745, 0.797 against a 0.80 cutoff), and "$49.75M ETF OUTflows"
+merged into "$32.11M ETF INflows" at 0.900.
 
-    Measured on 19 hand-labelled pairs from this channel's own history:
+It is fed by check 4 rather than replacing it — the numbers find a few plausible
+candidates, this rules on them. Roughly 16 calls a day.
 
-        real duplicates      scored 0.738 - 0.993
-        genuinely different  scored 0.785 - 0.900
-
-    The ranges overlap, which means no cutoff anywhere can separate them. That
-    is not a tuning problem to be solved with a better number — it is the wrong
-    instrument. Two real failures on the live channel:
-
-      MISSED   Three posts about one Fed rate decision, minutes apart, from
-               TreeNews, WatcherGuru and crypto_banter. They scored 0.738,
-               0.745 and 0.797 against a 0.80 cutoff.
-
-      WRONGLY  "$49.75M ETF OUTflows" was merged into "$32.11M ETF INflows"
-      MERGED   at 0.900. Opposite events, a day apart. The story never posted.
-
-    This node reads both stories properly and answers the real question. On that
-    same sample it got every one of those cases right.
-
-WHERE IT SITS
-    It does not replace check 4, it is fed by it. The numbers do the cheap work
-    of finding a handful of plausible candidates out of everything from the last
-    two days; this node does the expensive work of ruling on them. Roughly 16
-    calls a day at current volume — a few cents a month.
-
-WHY NOT JUST LOWER THE CUTOFF
-    Measured, not assumed. Dropping it from 0.80 to 0.72 caught every real
-    duplicate and DOUBLED the wrong merges, from three to six. There is no
-    setting of that one number that makes this better.
-
-WHICH WAY IT FAILS
-    OPEN. If the model cannot be reached, times out, or answers with nonsense,
-    we return "not a duplicate" and the story posts. This matches
-    nodes/dedup.py and is the opposite of nodes/editor.py. An accidental repeat
-    is an embarrassment; a channel that goes quiet because a provider had a bad
-    afternoon is a failure. Every such fallback is logged as a `judge_error`
-    counter so you can see it in tools/stats.py rather than guessing.
+IT FAILS OPEN: unreachable or nonsense means "not a duplicate" and the story
+posts, matching dedup.py and opposite to editor.py. Every fallback is counted as
+`judge_error` so it shows up in tools/stats.py.
 """
 
 from __future__ import annotations
@@ -180,7 +145,6 @@ def _describe(item, when: str) -> str:
     return f"[{source}, {when}]\n{title}\n{body}".strip()
 
 
-# --- Internal: ask the judge once with one of the two prompts ---
 async def _judge(item, candidate, *, system: str, schema: dict,
                  schema_name: str) -> dict | None:
     """Call the judge model once and return the parsed reply, or None on failure.
@@ -220,7 +184,6 @@ async def _judge(item, candidate, *, system: str, schema: dict,
     return answer
 
 
-# --- The node's entry point: binary verdict (kept for dedup.py compatibility) ---
 async def execute(item, candidate) -> tuple[bool | None, str]:
     """Rule on one pair. Returns (same_event, reason).
 
@@ -249,7 +212,6 @@ async def execute(item, candidate) -> tuple[bool | None, str]:
     return same, reason
 
 
-# --- Three-way verdict: same_event / continuation / different ---
 async def execute_three_way(item, candidate) -> tuple[str | None, str]:
     """Classify a pair's relationship for the brain.
 

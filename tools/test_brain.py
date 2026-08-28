@@ -1,22 +1,13 @@
-"""
-TOOL: Brain rehearsal
-PURPOSE: Run real queued items through the LangGraph "brain" (brain/graph.py)
-         and print every decision it makes. Nothing is sent to Telegram,
-         nothing is published, no posts are stored, no editor verdicts are
-         recorded.
-USAGE:   python tools/test_brain.py                (10 items)
-         python tools/test_brain.py --limit 25
-         python tools/test_brain.py --topic crypto
+"""Runs real queued items through the brain (brain/graph.py) and prints every
+decision. Publishes nothing, stores nothing, records no verdicts.
 
-WHY THIS EXISTS ALONGSIDE tools/dry_run.py
-    dry_run.py exercises the OLD hand-written pipeline. This tool exercises the
-    NEW graph. Running both on the same queue and comparing the outcomes is how
-    we prove the graph replicates the pipeline before it is allowed anywhere
-    near the live service. Once the graph is live, this remains the place to
-    rehearse graph-only features (continuation threading, the rewrite loop,
-    persona memory) that dry_run.py knows nothing about.
+    python tools/test_brain.py [--limit 25] [--topic crypto]
 
-COST: same as dry_run — about $0.002 per item.
+dry_run.py exercises the old hand-written pipeline; this exercises the graph.
+It is the place to rehearse graph-only features — continuation threading, the
+rewrite loop, persona memory — that dry_run.py knows nothing about.
+
+About $0.002 an item.
 """
 
 from __future__ import annotations

@@ -1,24 +1,10 @@
-# --- The database layer: every SQL query in the project lives here ---
-#
-# WHAT THIS FILE DOES
-#   Opens data/news.db and provides one plain Python function per thing we need
-#   to ask or tell the database. No other file writes SQL — if you are looking
-#   for "how does it remember X", it is in here.
-#
-# WHERE IT FITS
-#   Underneath everything. nodes/ and tools/ call these functions; none of them
-#   know SQL exists.
-#
-# WHY SQLITE IS CALLED THE OLD-FASHIONED (BLOCKING) WAY
-#   The rest of this project is "async" — while it waits for the network it goes
-#   and does something else. This file is deliberately NOT async. The database is
-#   a file on this same machine and every query here finishes in well under a
-#   millisecond, so there is nothing worth waiting on. Making it async would add
-#   real complexity and buy nothing. This is a deliberate choice, not an
-#   oversight — please don't "fix" it.
-#
-# DEPENDENCIES
-#   Python's built-in sqlite3. Reads DB_PATH and SCHEMA_PATH from config.
+"""Every SQL query in the project. No other file writes SQL.
+
+This file is deliberately NOT async, unlike the rest of the project. The
+database is a local file and every query finishes well under a millisecond, so
+there is nothing to wait on and async would add complexity for nothing. A
+choice, not an oversight — please do not "fix" it.
+"""
 
 from __future__ import annotations
 
@@ -37,7 +23,6 @@ logger = logging.getLogger("news-channel.db")
 _conn: sqlite3.Connection | None = None
 
 
-# --- Get the shared database connection, opening it the first time ---
 def conn() -> sqlite3.Connection:
     """Return the open database connection, creating it on first call.
 
@@ -60,7 +45,6 @@ def conn() -> sqlite3.Connection:
     return _conn
 
 
-# --- Create the tables (safe to run every time) ---
 def init_db() -> None:
     """Create any missing tables and indexes by running schema.sql.
 
@@ -105,7 +89,6 @@ def _apply_migrations() -> None:
     conn().commit()
 
 
-# --- The current time, in the one format we store everywhere ---
 def now_iso() -> str:
     """Current UTC time as 'YYYY-MM-DD HH:MM:SS'.
 
@@ -799,7 +782,6 @@ def meta_set(key: str, value: str) -> None:
     conn().commit()
 
 
-# --- Free-form read-only query, for the stats tool ---
 def query(sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
     """Run a SELECT and return the rows. Used by tools/stats.py for reporting."""
     return list(conn().execute(sql, params))
