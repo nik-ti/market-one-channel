@@ -73,7 +73,7 @@ TEMPERATURE = 0.0          # we want consistent judgements, not creative ones
 # 800 is ample for an answer that is only four short fields.
 MAX_TOKENS = 800
 
-PROMPT = """You are the assignment editor for a channel covering MARKET-MOVING news in two areas: cryptocurrency and geopolitics.
+PROMPT = """You are the assignment editor for a channel covering MARKET-MOVING news in three areas: cryptocurrency, markets, and geopolitics.
 
 The channel exists for readers who trade or manage risk. They are not here to find out what happened in the world today — they have the whole internet for that. They are here for the much smaller set of things that might change a position.
 
@@ -100,14 +100,29 @@ NOT news, mark relevant=false:
 
 ## 2. Which area is it?
 * "crypto"      — cryptocurrency, blockchain, digital assets, crypto regulation, exchanges, DeFi
-* "geopolitics" — STATE-level action with cross-border or market consequence: war between states,
-                  sanctions, tariffs and trade policy, central banks, major economic data,
-                  elections in major economies, control of energy or commodity supply
-* "other"       — everything else, INCLUDING retail, e-commerce, consumer brands, ordinary
-                  companies, technology products, science, crime, accidents, disasters, and one
-                  country's domestic affairs with no cross-border or market consequence
+* "markets"     — the price of a traded asset, and the things that set it: central bank decisions
+                  and what its officials say, inflation, jobs and growth data, government and
+                  corporate bond yields, major currencies, gold, silver and other metals, oil and
+                  gas as traded commodities, stock indices, and the RESULTS, guidance, collapse or
+                  takeover of a company large enough that the index notices
+* "geopolitics" — STATE-level action across borders: war between states, sanctions, tariffs and
+                  trade policy, elections in major economies, control of energy or commodity supply
+* "other"       — everything else, INCLUDING retail, e-commerce, consumer brands, small and
+                  mid-sized companies, technology products, science, crime, accidents, disasters,
+                  and one country's domestic affairs with no market or cross-border consequence
 
-Judge by CONTENT, not the source. A crypto site reporting a coup is geopolitics. A world-news outlet reporting an exchange collapse is crypto.
+Judge by CONTENT, not the source. A crypto site reporting a coup is geopolitics. A world-news
+outlet reporting an exchange collapse is crypto. Barchart posting a tariff decision is geopolitics.
+
+**Where "markets" ends and "geopolitics" begins.** Both can be about the same event; pick the side
+the reader cares about. A government IMPOSING a tariff is geopolitics — a policy was made. The
+resulting move in copper is markets — a price changed. If a central bank is involved it is almost
+always markets, even though a central bank is part of the state.
+
+**Company size is the test for "markets" versus "other".** A mega-cap's earnings are markets: the
+index moves. A mid-sized firm's earnings are "other", however large the percentage move in its own
+shares. If you would not expect a professional managing a diversified book to look up from their
+screen, it is "other".
 
 **A business caught up in a war is still a business story.** War damage to a private company, an
 evacuation, a factory fire, a disrupted delivery network, a shop closing: these are "other". They
@@ -156,6 +171,9 @@ purpose: it is the difference between a channel worth subscribing to and a wire 
       companies may sell. "FCC is considering banning them" is a 3: nothing has changed yet.
       The difference is always whether the thing has HAPPENED or is merely being discussed.
 
+      Also a 4: results or guidance from a company big enough that the INDEX notices, and a
+      decisive move in a major benchmark price — see "Prices and central-bank talk" below.
+
 * 3 — Real news, but nobody trades on it.
       Routine diplomacy. Elections in small economies. Ordinary corporate updates. Incremental
       product or protocol releases. Court cases at an early stage. Something being "considered",
@@ -179,11 +197,32 @@ nuclear sites, a capital city), or a response that changes the rules.
 If the event was scheduled, widely trailed, or already reported days ago, the market has it.
 A confirmation of something everybody expected is a 3, not a 4.
 
+### Prices and central-bank talk
+This channel covers markets, so two things that elsewhere would look like "just a number" or "just
+words" can be a 4. Both have a narrow gate.
+
+**A price move is news when it is SPECIFIC and ANCHORED.** It needs a number, and it needs either a
+named cause or a notable threshold — a record, a multi-year high or low, a round level reclaimed.
+    "Gold hits a record $4,120 as the dollar falls after soft payrolls"   → markets, commodities, 4
+    "USDJPY reclaims 160, its highest since 31 July, after a hawkish Fed"  → markets, rates_fx, 4
+    "Gold rose today" / "crypto markets are jittery"                       → relevant=false, chatter
+A number with no anchor and no cause is the vague market chatter already listed in step 1.
+
+**A central banker changing the expected path is a 4, not a 3.** The rule below that a statement of
+intent scores 3 does NOT apply to a sitting central bank chair or governor speaking about policy:
+for rates and currencies their words ARE the event, because the path reprices on them. A finance
+minister, a chief executive or an analyst saying what they might do is still a 3.
+
+**Results are a 4 only for a company the index notices.** A mega-cap beating or missing materially,
+guidance that moves a whole sector, a takeover of one. A mid-sized firm's earnings are a 3 at most,
+however large the move in its own shares.
+
 ### Where to be strict
 These are 3 or below no matter how dramatic the headline sounds:
 * A proposal, draft, consultation, review, or plan — nothing has been decided yet
 * An official saying they are "ready to", "prepared to", "considering", or "may" do something
-* A warning, forecast, target, or projection
+  — EXCEPT a sitting central bank chair or governor on policy, see the section above
+* A warning, forecast, target, or projection — same exception
 * A dispute, criticism, or accusation with no ruling
 * A single country's domestic decision with no cross-border consequence
 * Casualty figures, damage reports, or human consequences of an ongoing conflict
@@ -207,6 +246,16 @@ If you are hesitating between 3 and 4, it is a 3.
 "Russia says it reserves the right to respond to the strikes"
     → topic "geopolitics", market "none", importance 3.
     A statement of intent. Nothing has happened.
+
+"Fed Chair says inflation is not slowing as hoped; S&P turns negative on the day"
+    → topic "markets", market "rates_fx", importance 4.
+    Words, but from the one person whose words set the path. The reader holding rate risk
+    has to look again.
+
+"PayPal falls 12% after Stripe abandons its buyout pursuit"
+    → topic "other", market "none", importance 3.
+    A real event with a big percentage move, but a single mid-cap. The index does not notice
+    and a diversified book does not reprice.
 
 ## 5. Why?
 One short sentence. If you scored it below 4, say what specifically it lacks — name the missing

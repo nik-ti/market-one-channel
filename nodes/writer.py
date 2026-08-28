@@ -133,7 +133,7 @@ def _build_emoji_rule() -> str:
 
 EMOJI_RULE = _build_emoji_rule()
 
-PROMPT = """You write short English-language news posts for a Telegram channel covering cryptocurrency and geopolitics.
+PROMPT = """You write short English-language news posts for a Telegram channel covering cryptocurrency, markets and geopolitics.
 
 ## Core Rule
 You MUST write the post. ALWAYS. NO EXCEPTIONS.

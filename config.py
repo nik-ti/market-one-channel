@@ -81,28 +81,21 @@ SOURCES = [
 #   2. this dictionary
 # Removing it from here alone mutes it for this channel only.
 
-# The topic here is only a HINT. The sorter decides the real topic, and the
-# editor rejects anything that is neither crypto nor geopolitics (WRONG_TOPIC).
-#
-# WORTH KNOWING ABOUT THE MARKETS ACCOUNTS
-#   Barchart, DeItaone and BullTheoryio mostly post markets and macro — the S&P,
-#   bond yields, FX, the Fed, single stocks. A sample of twelve consecutive
-#   BullTheoryio tweets contained exactly one crypto story. Under the current
-#   two-topic scope most of what they send will be filtered out before it is
-#   ever written. They are still worth having for the Fed, tariff and sanctions
-#   stories they break quickly, but do not expect a high pass rate from them
-#   unless VALID_TOPICS is widened to cover markets.
+# The topic here is only a HINT — the sorter reads the story and decides for
+# itself. It is worth setting well anyway: the hint is what the sorter falls
+# back to when it cannot be reached.
 X_ACCOUNTS = {
     "WatcherGuru":   "crypto",
     "crypto_banter": "crypto",
     "TreeNewsFeed":  "crypto",
-    "BLS_gov":       "geopolitics",
+    "BLS_gov":       "markets",      # payrolls, CPI — the data itself, not politics
 
-    # Added 28 Aug 2026. All four are already tracked by the relay.
-    "BullTheoryio":  "crypto",       # markets + crypto; in the relay since 29 Jul
+    # Added 28 Aug 2026. All four were already tracked by the relay;
+    # BullTheoryio had been arriving since 29 July and was simply never listed.
     "glassnode":     "crypto",       # on-chain analytics
-    "DeItaone":      "geopolitics",  # Walter Bloomberg — Fed, tariffs, sanctions
-    "Barchart":      "geopolitics",  # markets and commodities
+    "BullTheoryio":  "markets",      # indices, FX, yields, the Fed, some crypto
+    "DeItaone":      "markets",      # Walter Bloomberg — central banks, results
+    "Barchart":      "markets",      # equities, metals, commodities
 }
 
 
@@ -139,7 +132,17 @@ POST_MARKS = {
     "🪙": "a crypto-specific development none of the above fits",
 }
 
-VALID_TOPICS = ("crypto", "geopolitics")
+# The three areas the channel covers. "markets" was added on 28 Aug 2026: the
+# channel is read by people holding positions, and the things that move those
+# positions — a central bank, an inflation print, a mega-cap's results, gold,
+# a major currency — were being thrown away as off-topic.
+#
+# WIDENING THE TOPIC IS NOT LOWERING THE BAR
+#   The market-impact test in nodes/sorter.py is unchanged and still does the
+#   filtering. "Gold rose a bit today" fails it exactly as it always did. What
+#   changed is only that such a story is now allowed to be JUDGED, instead of
+#   being refused a hearing because of the subject it is about.
+VALID_TOPICS = ("crypto", "markets", "geopolitics")
 
 # Short sources — typically an X post of a few sentences — become BRIEF posts:
 # kept much shorter, because there is nothing to pad a longer post with except

@@ -199,7 +199,7 @@ def main() -> None:
     """Read the command line and run the requested subcommand."""
     parser = argparse.ArgumentParser(
         prog="news-channel",
-        description="Automated crypto / geopolitics news channel.",
+        description="Automated crypto / markets / geopolitics news channel.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
