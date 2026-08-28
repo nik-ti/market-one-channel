@@ -23,6 +23,7 @@ is a small embarrassment, unreviewed text on a public channel is not.
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 import config
@@ -32,6 +33,10 @@ log = log_setup.get("editor")
 
 # --- AI configuration: the block to edit when tuning the editor ---
 MODEL = config.EDITOR_MODEL
+
+# Tried when MODEL cannot be reached. See EDITOR_FALLBACK_MODEL in config.py for
+# why the second opinion has to be as strict as the first.
+FALLBACKS = [m for m in (config.EDITOR_FALLBACK_MODEL,) if m]
 TEMPERATURE = 0.0          # judgements should be consistent, never creative
 
 # WATCH THIS IF YOU CHANGE THE MODEL. A reasoning model thinks privately before
@@ -165,11 +170,22 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
     )
 
     try:
-        result = await openrouter.chat_json(
-            model=MODEL, system=system_prompt, user=user_message,
-            schema=SCHEMA, schema_name="editor_verdict",
-            temperature=TEMPERATURE, max_tokens=MAX_TOKENS,
+        result = await asyncio.wait_for(
+            openrouter.chat_json(
+                model=MODEL, system=system_prompt, user=user_message,
+                schema=SCHEMA, schema_name="editor_verdict",
+                temperature=TEMPERATURE, max_tokens=MAX_TOKENS,
+                fallbacks=FALLBACKS,
+            ),
+            timeout=config.EDITOR_TIMEOUT_SECONDS,
         )
+    except asyncio.TimeoutError:
+        # A TimeoutError carries no message, so say what actually happened.
+        why = (f"the editor took longer than {config.EDITOR_TIMEOUT_SECONDS}s "
+               f"(models tried: {', '.join([MODEL, *FALLBACKS])})")
+        log.warning("Editor timed out on post %s: %s", post_id, why)
+        return {"approved": False, "rules_broken": [], "confidence": 0.0,
+                "reason": why, "error": True}
     except Exception as error:  # noqa: BLE001
         log.warning("Editor could not be reached for post %s: %s", post_id, error)
         return {

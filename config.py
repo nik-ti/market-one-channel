@@ -250,6 +250,28 @@ WRITER_MODEL = _get("WRITER_MODEL", "deepseek/deepseek-v3.2")
 # reasons — so they are disqualified however good they are.
 EDITOR_MODEL = _get("EDITOR_MODEL", "minimax/minimax-m2.7")
 
+# Used when EDITOR_MODEL cannot be reached at all. This node fails closed, so an
+# unreachable editor means the post is not published — and minimax is rate-limited
+# upstream often enough to matter: 15 failures in two weeks, 10 of them HTTP 429,
+# which cost four real stories including a BLS payrolls print. The item burns all
+# three of its attempts inside one four-minute window and is marked failed.
+#
+# The fallback must clear the same bar as the primary, because a rubber-stamp
+# second opinion is WORSE than losing the story: it would publish unchecked
+# posts instead of none. Tested on the same three cases as the primary —
+# mistral-medium-3.1 caught all three at 1-2s, faster than minimax. Every qwen
+# tried waved through "SEC is reportedly considering" published as "SEC
+# approves", which is the exact failure this node exists to prevent.
+#
+# Set to "" to switch the fallback off.
+EDITOR_FALLBACK_MODEL = _get("EDITOR_FALLBACK_MODEL", "mistralai/mistral-medium-3.1")
+
+# A ceiling on the whole editor call, retries and fallback included. Without it
+# the worst case is three retries against each of two models — 368 seconds on one
+# post, three times the publish tick. A normal verdict takes 2-4 seconds, so this
+# is fifteen times the usual and only ever fires when something is badly wrong.
+EDITOR_TIMEOUT_SECONDS = _get_int("EDITOR_TIMEOUT_SECONDS", 60)
+
 # Alerts you if the editor starts rejecting an unusual share of posts.
 EDITOR_DECLINE_ALERT_RATE = _get_float("EDITOR_DECLINE_ALERT_RATE", 0.5)
 EDITOR_DECLINE_WINDOW = _get_int("EDITOR_DECLINE_WINDOW", 20)
