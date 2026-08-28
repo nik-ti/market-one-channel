@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timezone
 
 import config
 from utils import db, logger as log_setup, openrouter
@@ -32,6 +33,11 @@ from utils import db, logger as log_setup, openrouter
 log = log_setup.get("editor")
 
 # --- AI configuration: the block to edit when tuning the editor ---
+def _today() -> str:
+    """Today's date, so the editor does not trust its own memory over the source."""
+    return datetime.now(timezone.utc).strftime("%d %B %Y")
+
+
 MODEL = config.EDITOR_MODEL
 
 # Tried when MODEL cannot be reached. See EDITOR_FALLBACK_MODEL in config.py for
@@ -44,13 +50,16 @@ TEMPERATURE = 0.0          # judgements should be consistent, never creative
 # the whole allowance thinking and never reached its answer — HALF of all editor
 # calls failed that way, invisibly, and because this node fails closed those
 # posts were never published. Put it back to 2000 for a reasoning model.
-MAX_TOKENS = 800
+# Raised from 800 on 28 Aug 2026: the Reason field now has to name EVERY fault
+# rather than one, and two calls hit the ceiling at the old budget.
+MAX_TOKENS = 1200
 
 # The complete list of reasons a post may be rejected. The model is FORCED to
 # pick from it; adding a new reason has to be deliberate.
 RULES = {
-    "FACTUAL_DRIFT": "states something the source text does not say, including "
-                     "true background the source never mentioned",
+    "FACTUAL_DRIFT": "states something the source text does not say — added "
+                     "background, an added or altered title, or a claim whose "
+                     "wording no longer matches the source",
     "OVERCLAIM":     "turns 'proposed' or 'could' into 'launched' or 'will'",
     "NO_NEWS":       "no actual event — opinion, promotion, or pure commentary",
     "WRONG_TOPIC":   "not about crypto, markets or geopolitics",
@@ -66,15 +75,40 @@ PROMPT = """You are the final editor of a news channel. A post has been written 
 
 You will be shown BOTH the finished post AND the original source text. Check the post against the source — do not simply judge whether it reads nicely.
 
+## Today is {today}
+Your own knowledge of the world is older than that. When the post asserts something your memory agrees with, that is NOT evidence it is right — check the source, which is the only thing that is current. Be especially suspicious of anything about who holds an office or runs a company: that is exactly where a stale memory feels most confident.
+
+## How to read the post
+Go phrase by phrase, not sentence by sentence. For each noun, number, name, title and verb in the post, find the words in the source it came from. A sentence can be broadly true and still contain one phrase nobody wrote. That phrase is the whole reason this node exists.
+
 ## Reject a post ONLY for one of these specific reasons
 
-* FACTUAL_DRIFT — the post states something the source does not say. A number, name, date, or claim that isn't there.
-  This INCLUDES background the writer filled in from its own knowledge, even when that background is true and even when it
-  is only a few words. If the source says "Elon Musk" and the post says "the founder and CEO of the aerospace company",
-  that is FACTUAL_DRIFT: the source never said it. If the source calls someone the "Spy Sheikh" and the post explains that
-  he "oversees the country's intelligence operations", that is FACTUAL_DRIFT too — unpacking a nickname into a factual
-  claim is still adding a claim.
-  Ask it as a test: could I point at the exact words in the source that this phrase came from? If not, reject.
+* FACTUAL_DRIFT — the post states something the source does not say. A number, name, date, claim, or description that
+  isn't there. Three kinds, all of them drift:
+
+  (a) ADDED BACKGROUND, even when true and even when only a few words. Source says "Elon Musk", post says "the founder
+      and CEO of the aerospace company" — the source never said it. Source calls someone the "Spy Sheikh", post explains
+      he "oversees the country's intelligence operations" — unpacking a nickname into a factual claim is adding a claim.
+
+  (b) AN ADDED OR ALTERED TITLE, ROLE OR HONORIFIC. This is the one to watch hardest, because your own memory of who
+      holds which office is out of date and will feel certain anyway. If the source gives a bare name, the post must give
+      the bare name.
+        Source: "TRUMP: US ENTERS AGREEMENT WITH VENEZUELA"
+        Post:   "The former president says..."   → FACTUAL_DRIFT. Reject.
+        Post:   "President Trump says..."        → FACTUAL_DRIFT. Reject. Adding a title is drift even if the title fits.
+      Applies to organisations too: "the search giant", "the Musk-owned company", "the world's largest exchange".
+
+  (c) A CLAIM REWORDED INTO A DIFFERENT CLAIM. The post may compress and simplify; it may not change what was asserted,
+      in EITHER direction. Weakening counts as much as strengthening.
+        Source: "US SECURES MAJORITY CONTROL OF MORE THAN 65 BILLION BARRELS"
+        Post:   "a deal for access to oil reserves"   → FACTUAL_DRIFT. "Access to" is not "majority control of".
+        Source: "halted loading at the terminal"
+        Post:   "disrupted operations at the port"    → FACTUAL_DRIFT. Different claim, vaguer and wider.
+      Read the headline as carefully as the body — it is the part most readers see, and the part most often loosened.
+
+  THE TEST: could you point at the exact words in the source this phrase came from? If not, reject. "It is true" and
+  "it is a fair summary" are not answers to that question.
+
   The ONE exception is the short definition of a technical term the post is required to explain — "an ETF, a fund that
   tracks an asset's price" is expected and is not drift.
 * OVERCLAIM — the post drops a hedge the source had. "Proposed" became "approved". "Could" became "will". "Reportedly" disappeared.
@@ -101,7 +135,11 @@ Being too strict here is far more damaging than being too lenient. A channel wit
 0.0 to 1.0, how sure you are of your decision. If you are hesitating over a rejection, that is a signal to approve with low confidence instead.
 
 ## Reason
-One plain sentence. If you rejected the post, quote the specific words that broke the rule. This gets read by a human later, so be concrete: "says 'approved' but the source says 'proposed'" is useful; "inaccurate" is not.
+If you are approving, one short sentence is enough.
+
+If you are REJECTING, name EVERY phrase that broke a rule — not just the first one you found. This text is handed straight back to the writer as its instructions for the rewrite. A reason that names one problem out of two produces a new draft that fixes that one and reintroduces the other, and the post is then thrown away for a fault you had already seen. That has happened, which is why this says every.
+
+Quote the specific words and say what the source has instead. Be concrete: "adds 'the former president', which the source does not say; and the headline says 'access to' where the source says 'majority control of'" is useful. "Inaccurate" is not.
 
 Answer with JSON only."""
 
@@ -158,7 +196,7 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
     source_text = (item["body"] or "")[:1500]
     started = time.monotonic()
 
-    system_prompt = PROMPT
+    system_prompt = PROMPT.format(today=_today())
 
     user_message = (
         f"## The original source\n"

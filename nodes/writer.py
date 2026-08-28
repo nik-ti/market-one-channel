@@ -17,6 +17,7 @@ string goes wrong often enough to matter and gains nothing.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 
 import config
 from utils import logger as log_setup, openrouter
@@ -96,7 +97,27 @@ def _build_emoji_rule() -> str:
 
 EMOJI_RULE = _build_emoji_rule()
 
+
+def _today() -> str:
+    """Today's date, for the prompt.
+
+    The model's own knowledge is frozen well before today and it has no way to
+    know by how much. Telling it the date is what makes "this year" and "last
+    month" resolvable, and it is half of the guard against a stale title — the
+    other half is the rule forbidding it to add one at all.
+    """
+    return datetime.now(timezone.utc).strftime("%d %B %Y")
+
 PROMPT = """You write short English-language news posts for a Telegram channel covering cryptocurrency, markets and geopolitics.
+
+## Today is {today}
+Your own knowledge of the world was fixed at some point before that and is very
+likely out of date. The source text below is authoritative and your memory is
+not. Where the two could disagree — who holds an office, who runs a company,
+what the latest figure is — report the source and say nothing your memory
+supplied.
+
+Use this date for anything relative: "this year", "last month", "recently".
 
 ## Core Rule
 You MUST write the post. ALWAYS. NO EXCEPTIONS.
@@ -116,6 +137,30 @@ This is the rule that matters most. Never make a story stronger than its source.
 * "could" / "may" / "reportedly" → keep the hedge, do not drop it
 * Delayed ≠ Cancelled ≠ Approved. Discussed ≠ Agreed. Accused ≠ Convicted.
 Never add a number, date, or name that is not in the source text.
+
+### Never add or change a title, role or honorific
+This is the one your own memory will get wrong, because who holds which office
+changes and your knowledge of it is frozen at some point in the past.
+
+**If the source gives a bare name, the post gives that bare name.** Do not
+promote, demote, or explain who somebody is.
+
+* Source: "TRUMP: US ENTERS AGREEMENT WITH VENEZUELA"
+  ✅ "Trump says the US has entered an agreement with Venezuela"
+  ❌ "The former president says..."     ← invented, and out of date
+  ❌ "President Trump says..."          ← also invented, even if it happens to fit
+* Source: "Elon Musk predicts SpaceX will reach $3.5 trillion"
+  ✅ "Elon Musk predicts..."
+  ❌ "The founder and CEO of the aerospace company predicts..."
+* Source: "Carney said the measures match US tariffs"
+  ✅ "Carney said..."   — or "Prime Minister Mark Carney" ONLY if the source said it
+
+The same goes for organisations: no "the search giant", no "the Musk-owned
+company", no "the world's largest exchange". If the source did not say it, it
+does not go in.
+
+You do not need to know whether a title is currently correct. You only need to
+check whether it is in the source. If it is not, leave it out.
 
 ### Keep every hedge and every attribution
 This is the single most common way these posts go wrong, so check it explicitly before you finish.
@@ -358,7 +403,8 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
     else:
         length_rule = LENGTH_RULE_TEXT
 
-    system_prompt = PROMPT.format(length_rule=length_rule, emoji_rule=EMOJI_RULE)
+    system_prompt = PROMPT.format(length_rule=length_rule, emoji_rule=EMOJI_RULE,
+                                  today=_today())
 
     # The persona describes voice only; the factual-accuracy rules above still
     # override anything in it.
@@ -420,6 +466,15 @@ CONTINUATION_PROMPT = """You write short continuation updates for a Telegram new
 This item is a follow-up to a story the channel has already posted. The
 original post is shown below for context ONLY. Your job is to write the NEW
 information in the source — what has changed or what has been confirmed.
+
+## Today is {today}
+Your own knowledge of the world is older than that and may be out of date. The
+source is authoritative; your memory is not.
+
+NEVER add or change a title, role or honorific. If the source gives a bare name,
+use the bare name — no "the former president", no "the CEO of", no explaining
+who somebody is. You do not need to know whether a title is currently right,
+only whether it is in the source.
 
 ## Core Rule
 Write ONLY what is new. Do not repeat facts that already appeared in the
@@ -502,7 +557,8 @@ async def execute_continuation(item, *, parent_post_html: str,
         length_rule = LENGTH_RULE_TEXT
 
     system_prompt = CONTINUATION_PROMPT.format(length_rule=length_rule,
-                                               emoji_rule=EMOJI_RULE)
+                                               emoji_rule=EMOJI_RULE,
+                                               today=_today())
 
     if persona.strip():
         system_prompt = f"{persona}\n\n---\n\n{system_prompt}"
