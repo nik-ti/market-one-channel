@@ -137,8 +137,3 @@ def tweet_to_title(text: str, max_chars: int = 200) -> str:
     return first_line[:max_chars]
 
 
-def strip_html(text: str) -> str:
-    """Remove HTML tags and collapse whitespace, without a full parser."""
-    if not text:
-        return ""
-    return " ".join(re.sub(r"<[^>]+>", " ", text).split())

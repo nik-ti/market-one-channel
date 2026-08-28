@@ -1,4 +1,4 @@
-# News Channel — crypto / geopolitics
+# News Channel — crypto / markets / geopolitics
 
 **What it does:** reads news from RSS feeds and from X accounts, throws away
 anything it has already covered or that isn't market-moving, rewrites what's left
@@ -103,12 +103,12 @@ Everything it needs is already installed on this machine. On a fresh one:
 ## ⚠️ Rehearse before going live
 
 Posts go **straight to the live channel**. There is no approval button and no
-preview channel. So `tools/dry_run.py` is your one chance to see what the AI
+preview channel. So `tools/test_brain.py` is your one chance to see what the AI
 writes, and what the AI editor rejects, before either is doing it in public.
 
 ```bash
-python3 main.py collect --once      # get some real news in
-python3 tools/dry_run.py --limit 25 # run it all through, printed here
+python3 main.py collect --once        # get some real news in
+python3 tools/test_brain.py --limit 25 # run it through the brain, printed here
 ```
 
 That costs about five cents and sends nothing. Read every post — is that the
@@ -283,65 +283,21 @@ weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
 - **Fails soft:** if it breaks, we fall back to the source's own topic and carry
   on. It is an optimiser, not a safety gate.
 
-### `writer.py` (AI — for RSS only)
-- **What:** rewrites RSS articles into one consistent house voice.
-- **X posts are NOT rewritten.** These accounts already write short, factual
-  posts for exactly this audience, so rewriting cost money and added risk with
-  nothing gained — the rewrite step was where the model invented casualty
-  figures during testing. `passthrough()` publishes the tweet's own words, so
-  the post cannot say anything the source didn't, because it *is* the source.
-  It strips the t.co links, drops a redundant "JUST IN:", removes the sirens and
-  rockets, and bolds the first line.
-- **Watch out — X truncates its own long posts** at ~280 characters and appends
-  a link to the rest, so stored tweets routinely end mid-sentence
-  (`"...that a statute https://t.co/..."`). `passthrough()` trims back to the
-  last complete sentence; if too little survives, it falls back to the AI writer
-  rather than dropping a real story.
-- **That trimming only runs on tweets long enough to have been truncated**
-  (`X_TRUNCATION_CHARS`, 250), and this matters more than it looks. Trimming
-  assumes text not ending in punctuation was cut off. For a long tweet that is a
-  good assumption; for a short one it is simply wrong, because these accounts
-  write **headlines**, and a headline has no full stop:
-
-  > 🚨 JUST IN: Bitcoin falls below $60,000
-
-  That is a whole tweet. Ungated, the trimmer walked back looking for a sentence
-  ending, found the colon in "JUST IN:" — a colon used to count — and returned
-  `"🚨 JUST IN:"`, which the prefix stripper then removed entirely. **Every
-  headline-shaped tweet was destroyed this way, which is most of what
-  WatcherGuru and TreeNewsFeed publish.**
-
-  Nothing looked broken, because the caller fell back to the AI writer and the
-  posts still appeared. They were just being *rewritten* rather than passed
-  through — quietly turning off the one guarantee this node exists to provide,
-  on the majority of tweets, for months. A colon is no longer a sentence ending,
-  and the trim is gated on length.
-- **"Is anything usable left?" is `passthrough()`'s question to answer**, and it
-  returns an empty string to say no. The publish loop used to decide this itself
-  with `len(post_html) < 40`, which counted the HTML — the `<b></b>` around a
-  headline is 7 characters of tag that say nothing to a reader — and so rejected
-  valid one-line tweets for being short.
-- **Model:** `deepseek/deepseek-v3.2`, temperature 0.2. Its output is $0.40/M
-  against Gemini Flash's $2.50/M, and the writer is output-heavy.
-- **Prompt:** at the top of the file. Most of its odd-looking sections are scar
-  tissue: *Factual Accuracy* exists because models silently upgrade "proposed"
-  to "approved"; *Untrusted input* exists because half our input is arbitrary
-  tweets that anyone can write instructions into.
-- **Three lengths, set by how much source material exists:** 70-100 words
-  normally; 45-65 with an image (Telegram caps captions at 1024 chars); **25-45
-  words when the source is under 400 characters**, because you cannot honestly
-  write 90 words from a 150-character summary — the model pads, and padding a
-  news post means inventing. That was a measured failure, not a theory: a short
-  Cointelegraph summary produced a sentence about "organized crime rings" that
-  appeared nowhere in the source.
-- **The ⚡ badge is separate, and X-only.** A short *X post* leads with ⚡ instead
-  of the topic emoji and carries **no other emoji at all** — one mark is its whole
-  visual signature. A short *RSS summary* gets the shorter length but keeps its
-  normal topic emoji, because it is still a proper article and badging it as a
-  flash alert would tell the reader something untrue about where it came from.
-  Emoji the model adds are stripped in code on every post, not just discouraged
-  in the prompt.
-- **Guards:** a post that stops mid-sentence is discarded and retried, never sent.
+### `writer.py` (AI)
+- **What:** rewrites every story — articles and tweets alike — into one house
+  voice, and picks at most one mark from `config.POST_MARKS` to lead with.
+- **Tweets used to bypass this** via a mechanical `passthrough()`, because an
+  early rewrite invented casualty figures during testing. That was safe but sent
+  a third of the channel out in the source account's voice: sirens, ALL CAPS,
+  cashtags. Since 28 Aug 2026 tweets go through the writer too.
+- **What keeps the rewrite honest** is `LENGTH_RULE_BRIEF`, which applies to any
+  thin source and forbids adding a single fact that is not in the source text,
+  plus the editor checking the finished post against that source. The editor's
+  `FACTUAL_DRIFT` rule explicitly covers background the model filled in from its
+  own knowledge, even when that background is true.
+- **The voice** comes from `brain/persona.md`, prepended to the writer's prompt.
+  That file is where you change how the channel sounds; the factual-accuracy
+  rules in `nodes/writer.py` still override anything in it.
 
 ### `editor.py` (AI)
 - **What:** the final check. Reads the finished post *against its source*.
@@ -380,9 +336,8 @@ weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
 - **No hashtags.** Dropped deliberately. Two tags covering the whole channel
   sorted posts the way this desk thinks rather than the way a reader does, and
   every post carried a line of tag that said almost nothing a reader couldn't
-  already see from the emoji. `docs/IMPROVING-THE-CHANNEL.md` proposes bringing
-  them back per **market** (`#energy`, `#rates`) rather than per topic, which is
-  the version that would actually earn its line.
+  already see. If they ever come back it should be per **market**
+  (`#energy`, `#rates`) rather than per topic — that version would earn its line.
 - **Pacing:** max 2 per round, 90 seconds minimum between posts, 12/hour, 60/day.
   Telegram would allow roughly 20 a *minute*; the limit here is about readers,
   not the API.
@@ -447,7 +402,7 @@ Two places, because the relay is shared with the trading bot:
 2. `X_ACCOUNTS` in `config.py` — decides which of those *this* channel wants.
 
 ### Changing the writing style
-`PROMPT` at the top of `nodes/writer.py`. Rehearse with `tools/dry_run.py` before
+`PROMPT` at the top of `nodes/writer.py`. Rehearse with `tools/test_brain.py` before
 restarting the service.
 
 ---
@@ -490,7 +445,7 @@ restarting the service.
 | No tweets ever arrive | `systemctl status tweet-relay`. Also check the handle is in **both** `accounts.txt` and `X_ACCOUNTS` |
 | Duplicates getting through | **First run `tools/check_dedup.py`** — confirm checks 4-5 are running at all before touching anything. Then `stats.py`: if the pair never reached the judge, lower `COSINE_SHORTLIST` to just under the near-miss score reported. If the judge saw it and said "different", the prompt in `nodes/judge.py` needs the case adding. If `judge_error` is climbing, the model is unreachable and everything is failing open. |
 | Real stories being merged | Look at the `judge` rows in `stats.py` — each records its reason in plain English. Fix the prompt in `nodes/judge.py`, not the floor; raising `COSINE_SHORTLIST` only hides the pair from the one thing that can judge it. |
-| Posts sound wrong | Edit `PROMPT` in `nodes/writer.py`, rehearse with `dry_run.py` |
+| Posts sound wrong | Edit `brain/persona.md`, rehearse with `test_brain.py` |
 | Posts are real news but nobody would trade on them | `nodes/sorter.py`, not the editor. Check `stats.py --dropped --market none` to see what it *is* catching, then tighten the market definitions |
 | The channel has gone quiet | `stats.py --dropped` — if good stories are in that list, the gate is too strict. Loosen the continuing-story test before touching `MIN_IMPORTANCE` |
 
@@ -515,11 +470,15 @@ logs/              the log
 
 ## Where this is going
 
-`docs/IMPROVING-THE-CHANNEL.md` is an analysis of what the channel offers a
-reader today and what would have to change for someone to want to subscribe. It
-covers the sourcing measurements behind the feed list, and a ranked set of
-proposals — showing the sorter's market judgement in the post itself, hashtagging
-by market rather than topic, threading developing stories onto the message that
-broke them, and logging Telegram reactions so calibration stops being guesswork.
+Threading developing stories onto the message that broke them is built — see
+`continuation` in `brain/graph.py`. Still open:
 
-None of it is implemented. Read it before making editorial changes.
+- **Show the sorter's market judgement in the post**, so a reader can see why it
+  was carried.
+- **Wake the publisher on arrival** instead of the fixed `PUBLISH_TICK_SECONDS`
+  sleep. That is the difference between a minute and ten seconds.
+- **Style memory** — record what each post used (its mark, its opening, its
+  shape) and pass the last few to the writer as constraints rather than as
+  examples, so the channel stops repeating itself.
+- **Log Telegram reactions**, so calibrating the importance gate stops being
+  guesswork.

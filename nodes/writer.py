@@ -16,7 +16,6 @@ string goes wrong often enough to matter and gains nothing.
 
 from __future__ import annotations
 
-import html
 import re
 
 import config
@@ -307,108 +306,6 @@ def has_thin_source(item) -> bool:
     90 words from a 150-character summary wherever it came from.
     """
     return len((item["body"] or "").strip()) < config.BRIEF_SOURCE_CHARS
-
-
-# Always shorteners. The system adds the one real link itself.
-_URL = re.compile(r"https?://\S+")
-
-# "JUST IN:", "BREAKING:" and friends.
-_ALERT_PREFIX = re.compile(
-    r"^\s*(breaking|just in|update|urgent|alert|news|developing)\s*[:\-–—]\s*",
-    re.IGNORECASE,
-)
-
-
-# A COLON IS DELIBERATELY ABSENT — see _trim_to_last_sentence for what its
-# presence once cost.
-_SENTENCE_END = (".", "!", "?", '"', "”", ")")
-
-# X hands the API ~280 characters of a long post. Anything shorter was never
-# truncated, so there is nothing to trim back to.
-X_TRUNCATION_CHARS = 250
-
-# A floor, not a preference: "Fed holds rates steady" is 22 characters.
-MIN_PASSTHROUGH_CHARS = 20
-
-_TAGS = re.compile(r"<[^>]+>")
-
-
-def _visible_length(html: str) -> int:
-    """How long the post is to a READER, ignoring the HTML tags around it."""
-    return len(_TAGS.sub("", html or "").strip())
-
-
-def _trim_to_last_sentence(text: str) -> str:
-    """Cut a truncated tweet back to its last COMPLETE sentence.
-
-    X hands the API ~280 characters of a long post, so stored text routinely
-    ends mid-sentence. Returns "" if nothing complete survives.
-
-    ONLY CALL THIS ON A TWEET LONG ENOUGH TO HAVE BEEN TRUNCATED. It assumes
-    text not ending in punctuation was cut off, which is wrong for a short one:
-    these accounts write HEADLINES, and a headline has no full stop. When a
-    colon still counted as a sentence ending, "🚨 JUST IN: Bitcoin falls below
-    $60,000" was trimmed to "🚨 JUST IN:" and then to nothing — destroying every
-    headline-shaped tweet, invisibly, because the caller fell back to the writer.
-    """
-    text = text.strip()
-    if not text or text.endswith(_SENTENCE_END):
-        return text
-
-    # Walk back to the last sentence ending.
-    cut = max(text.rfind(ch) for ch in _SENTENCE_END)
-    return text[: cut + 1].strip() if cut > 0 else ""
-
-
-def passthrough(item) -> str:
-    """Turn a tweet into a post without involving a model.
-
-    CURRENTLY UNUSED: since 28 Aug 2026 every tweet goes through execute().
-    Kept as a fallback if rewriting tweets ever proves too risky again.
-
-    Purely mechanical: drop the t.co links and the "JUST IN:" prefix, bold the
-    first line, strip emoji. The facts are reproduced exactly because the post
-    IS the source — rewriting was the step that invented casualty figures during
-    testing. Returns "" if nothing usable is left.
-    """
-    raw = item["body"] or ""
-    text = _URL.sub("", raw).strip()
-    if not text:
-        return ""
-
-    # Gated on the length of the ORIGINAL text: only a tweet long enough to have
-    # hit X's limit can have been cut. A headline with no full stop is complete.
-    if len(raw) >= X_TRUNCATION_CHARS:
-        text = _trim_to_last_sentence(text)
-        if not text:
-            return ""
-
-    text = strip_emojis(text)
-
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if not lines:
-        return ""
-
-    lines[0] = _ALERT_PREFIX.sub("", lines[0]).strip()
-    if not lines[0]:
-        lines.pop(0)
-    if not lines:
-        return ""
-
-    # Escape BEFORE adding our own <b> tags, or the sanitiser escapes those too.
-    safe = [html.escape(ln) for ln in lines]
-
-    headline, rest = safe[0], safe[1:]
-    post = f"<b>{headline}</b>"
-    if rest:
-        post += "\n\n" + "\n".join(rest)
-
-    # Measured on what a reader sees: counting the <b></b> tags once made a
-    # valid one-line tweet look too short to publish.
-    if _visible_length(post) < MIN_PASSTHROUGH_CHARS:
-        return ""
-
-    return post
 
 
 def is_brief(item) -> bool:

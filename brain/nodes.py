@@ -337,7 +337,7 @@ async def editor_node(state: dict) -> dict[str, Any]:
 
     decision = await editor.execute(
         item, state["post_html"], state["post_id"],
-        record=not dry, verbatim=not state["used_ai"],
+        record=not dry,
         attempt=rewrite_count + 1,
     )
 

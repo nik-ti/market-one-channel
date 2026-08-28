@@ -53,13 +53,8 @@ def _strip_foreign_links(html: str, allowed_url: str) -> str:
     return _LINK_TAG.sub(replace, html)
 
 
-def compose(post_html: str, topic: str, url: str, source_name: str,
-            brief: bool = False) -> str:
-    """Attach the source credit. The mark at the front belongs to the writer.
-
-    `topic` and `brief` no longer affect the output; they stay in the signature
-    because three call sites pass them.
-    """
+def compose(post_html: str, url: str, source_name: str) -> str:
+    """Attach the source credit. The mark at the front belongs to the writer."""
     body = _strip_foreign_links(post_html.strip(), url)
     parts = [body]
 
@@ -98,11 +93,8 @@ async def execute(item, post_html: str, post_id: int,
     `reply_to_message_id` threads the post under an earlier one, for
     continuations. Failures are counted on the post row and eventually give up.
     """
-    from nodes import writer
-
     topic = item["topic"] or item["topic_hint"] or "crypto"
-    message = compose(post_html, topic, item["url"] or "", item["source_name"],
-                      brief=writer.is_brief(item))
+    message = compose(post_html, item["url"] or "", item["source_name"])
     image_url = item["image_url"] or ""
 
     try:

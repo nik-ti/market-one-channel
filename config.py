@@ -225,9 +225,6 @@ DEDUP_TOP_K = _get_int("DEDUP_TOP_K", 3)
 DUPLICATE_MAX_GAP_HOURS = _get_int("DUPLICATE_MAX_GAP_HOURS", 12)
 
 EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
-EMBEDDING_DIM = _get_int("EMBEDDING_DIM", 1536)
-
-
 # =============================================================================
 # AI MODELS
 # =============================================================================

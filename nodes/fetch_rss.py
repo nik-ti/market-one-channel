@@ -20,7 +20,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 import config
-from utils import db, logger as log_setup, textclean
+from utils import db, logger as log_setup
 
 log = log_setup.get("rss")
 
@@ -28,11 +28,9 @@ log = log_setup.get("rss")
 # times: RSS 2.0 (plain tags), Atom (namespaced), RSS 1.0 / RDF (another
 # namespace). Getting it wrong fails SILENTLY — a valid page with no articles
 # found in it, which is what happened with Deutsche Welle on the first run.
+_DC = "{http://purl.org/dc/elements/1.1/}"
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _RSS1 = "{http://purl.org/rss/1.0/}"
-
-# RSS 1.0 usually carries its date in the Dublin Core namespace instead.
-_DC = "{http://purl.org/dc/elements/1.1/}"
 
 # Some sites block requests that do not identify themselves.
 _HEADERS = {

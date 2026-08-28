@@ -75,26 +75,3 @@ def send_error(message: str, node_name: str = "unknown", quiet: bool = True) -> 
         logger.warning("Error alert itself failed: %s", error)
 
 
-def send_notice(message: str) -> None:
-    """Send an informational note to your DM — not an error.
-
-    Used for things worth knowing but not alarming: "the editor is rejecting an
-    unusual number of posts", or "the channel started up".
-    """
-    try:
-        if not config.TELEGRAM_BOT_TOKEN or not config.ERROR_CHAT_ID:
-            logger.info("(no Telegram notice sent: token/chat not configured) %s", message)
-            return
-
-        httpx.post(
-            f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": config.ERROR_CHAT_ID,
-                "text": f"ℹ️ <b>News Channel</b>\n{html.escape(message[:1500])}",
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            },
-            timeout=10.0,
-        )
-    except Exception as error:  # noqa: BLE001
-        logger.warning("Notice failed to send: %s", error)

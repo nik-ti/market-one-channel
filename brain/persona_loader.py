@@ -54,7 +54,3 @@ def get_recent_posts(n: int | None = None) -> list[str]:
     return [_visible_text(row["post_html"]) for row in rows if row["post_html"].strip()]
 
 
-def reset_cache() -> None:
-    """Force the persona file to be re-read on the next call."""
-    global _persona_text
-    _persona_text = None

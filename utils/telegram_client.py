@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 
 from telegram import Bot
-from telegram.error import BadRequest, RetryAfter, TelegramError
+from telegram.error import BadRequest, RetryAfter
 
 import config
 from utils import logger as log_setup, telegram_html
@@ -56,17 +56,6 @@ async def _get_bot() -> Bot:
         _bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
         await _bot.initialize()
     return _bot
-
-
-async def close() -> None:
-    """Shut the bot connection down cleanly when the program stops."""
-    global _bot
-    if _bot is not None:
-        try:
-            await _bot.shutdown()
-        except Exception:  # noqa: BLE001
-            pass
-        _bot = None
 
 
 def build_post_url(message_id: int) -> str:
@@ -200,44 +189,3 @@ async def send_photo(image_url: str, caption_html: str,
         return message.message_id
 
 
-async def verify_channel() -> tuple[bool, str]:
-    """Check the bot can actually post to the configured channel.
-
-    Returns (everything is fine, a message explaining what's wrong if not).
-    Run at startup so a misconfigured channel fails immediately with a clear
-    explanation, rather than at 3am with a cryptic error.
-    """
-    try:
-        bot = await _get_bot()
-
-        me = await bot.get_me()
-        chat = await bot.get_chat(config.CHANNEL_ID)
-
-        # Being a member is not enough — the bot needs permission to post.
-        try:
-            member = await bot.get_chat_member(config.CHANNEL_ID, me.id)
-            if member.status not in ("administrator", "creator"):
-                return False, (
-                    f"@{me.username} is in '{chat.title}' but is not an administrator. "
-                    f"Channel settings → Administrators → add the bot, and give it "
-                    f"'Post Messages'."
-                )
-            if hasattr(member, "can_post_messages") and member.can_post_messages is False:
-                return False, (
-                    f"@{me.username} is an admin of '{chat.title}' but lacks the "
-                    f"'Post Messages' permission. Turn it on in the channel settings."
-                )
-        except TelegramError:
-            # Some channel types don't expose this. Not fatal — the first real
-            # send will tell us either way.
-            pass
-
-        return True, f"@{me.username} can post to '{chat.title}'"
-
-    except TelegramError as error:
-        return False, (
-            f"Could not reach the channel '{config.CHANNEL_ID}': {error}\n"
-            f"   Check that CHANNEL_ID is right and the bot has been added to it."
-        )
-    except Exception as error:  # noqa: BLE001
-        return False, f"Could not connect to Telegram: {error}"

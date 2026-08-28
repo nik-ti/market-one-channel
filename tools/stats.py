@@ -24,7 +24,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import config  # noqa: E402
 from nodes.sorter import NO_MARKET_CAP  # noqa: E402
 from utils import db  # noqa: E402
 
