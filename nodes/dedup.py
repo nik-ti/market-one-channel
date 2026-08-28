@@ -263,7 +263,11 @@ async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | Non
     title = item["title"] or ""
     body = item["body"] or ""
 
-    text = f"{title}\n{body[:400]}".strip()
+    # Strip the source's house decoration first — sirens, ALL CAPS, cashtags.
+    # A tweet and a wire story about the same event are written in completely
+    # different registers, and that difference alone was enough to push a real
+    # duplicate below the shortlist floor. See textclean.for_embedding().
+    text = textclean.for_embedding(f"{title}\n{body[:400]}")
     if not text:
         return "different", None, 0.0
 

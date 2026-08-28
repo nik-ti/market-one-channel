@@ -49,6 +49,68 @@ _DIGIT_RUN = re.compile(r"[0-9]+")
 _TRACKING_PARAMS = ("utm_", "fbclid", "gclid", "mc_cid", "mc_eid", "ref", "source")
 
 
+# The decoration that news accounts put around a story but that is not part of
+# the story: sirens and flags, ALL-CAPS shouting, cashtags, and the "JUST IN:"
+# style opener. See for_embedding() below for why these have to come off.
+_DECORATION = re.compile(
+    "[\U0001F000-\U0001FAFF"     # pictographs, symbols, flags, transport
+    "☀-➿"              # miscellaneous symbols and dingbats
+    "⬀-⯿←-⇿]"    # arrows and misc symbols
+    "|[︀-️‍⃣]"   # variation selectors, joiners, keycaps
+)
+
+# "$SOL", "$BTC" — a ticker written the social-media way. The dollar sign plus
+# CAPITALS is what marks it; a money amount like "$66,000" is digits and is left
+# completely alone, because the number usually IS the news.
+_CASHTAG = re.compile(r"\$[A-Z]{2,6}\b")
+
+# The openers that announce a story without describing it.
+_ALERT_OPENER = re.compile(r"\b(JUST IN|BREAKING|ALERT|UPDATE|NEW|LATEST)\b:?", re.IGNORECASE)
+
+
+# --- Strip a story down to its meaning, for the similarity check ---
+def for_embedding(text: str) -> str:
+    """Remove a source's house decoration before we measure what a story MEANS.
+
+    WHY THIS EXISTS
+        The meaning check turns a story into numbers and compares it with recent
+        stories. It works well when both sides are written in the same register
+        and badly when they are not — and ours never are. The same event reaches
+        us twice: once as a wire headline, once as a tweet in capitals with a
+        siren on the front.
+
+        A real case, measured. On 28 August the same Solana governance vote
+        arrived from CoinDesk and from crypto_banter:
+
+            "Solana vote to double disinflation passes by a hair..."
+            "🚨SOLANA DOUBLE DISINFLATION PASSES!"
+
+        Raw, those score 0.7162 — just under the 0.72 shortlist floor, so the
+        pair was never even shown to the judge, and the channel posted the story
+        twice 24 minutes apart. Stripped of the siren, the capitals and the
+        cashtag, the same pair scores 0.7786 and is caught comfortably.
+
+        The siren was worth 0.06 of similarity. That is the whole bug.
+
+    WHAT IT DELIBERATELY DOES NOT TOUCH
+        Numbers. "$66,000 Bitcoin" and "$71,000 Bitcoin" must stay far apart —
+        those are two different days, not one story. Only the CAPITALISED kind
+        of "$SOL" cashtag comes off; a money amount is left exactly as it is.
+        The same reasoning as in normalise_headline() above.
+
+    NOT the same as normalise_headline(). That one strips punctuation entirely
+    to build an exact-match key. This one keeps the sentence readable, because
+    an embedding model reads it as language rather than as a key.
+    """
+    if not text:
+        return ""
+    cleaned = _DECORATION.sub(" ", text)
+    cleaned = _CASHTAG.sub(" ", cleaned)
+    cleaned = _ALERT_OPENER.sub(" ", cleaned)
+    cleaned = cleaned.translate(_PUNCT_FOLD).lower()
+    return " ".join(cleaned.split())
+
+
 # --- Reduce a web address to its essentials ---
 def normalise_url(url: str) -> str:
     """Strip the parts of a link that don't change which page it points at.
