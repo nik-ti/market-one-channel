@@ -81,11 +81,28 @@ SOURCES = [
 #   2. this dictionary
 # Removing it from here alone mutes it for this channel only.
 
+# The topic here is only a HINT. The sorter decides the real topic, and the
+# editor rejects anything that is neither crypto nor geopolitics (WRONG_TOPIC).
+#
+# WORTH KNOWING ABOUT THE MARKETS ACCOUNTS
+#   Barchart, DeItaone and BullTheoryio mostly post markets and macro — the S&P,
+#   bond yields, FX, the Fed, single stocks. A sample of twelve consecutive
+#   BullTheoryio tweets contained exactly one crypto story. Under the current
+#   two-topic scope most of what they send will be filtered out before it is
+#   ever written. They are still worth having for the Fed, tariff and sanctions
+#   stories they break quickly, but do not expect a high pass rate from them
+#   unless VALID_TOPICS is widened to cover markets.
 X_ACCOUNTS = {
     "WatcherGuru":   "crypto",
     "crypto_banter": "crypto",
     "TreeNewsFeed":  "crypto",
     "BLS_gov":       "geopolitics",
+
+    # Added 28 Aug 2026. All four are already tracked by the relay.
+    "BullTheoryio":  "crypto",       # markets + crypto; in the relay since 29 Jul
+    "glassnode":     "crypto",       # on-chain analytics
+    "DeItaone":      "geopolitics",  # Walter Bloomberg — Fed, tariffs, sanctions
+    "Barchart":      "geopolitics",  # markets and commodities
 }
 
 
