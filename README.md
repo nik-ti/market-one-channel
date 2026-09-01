@@ -42,13 +42,17 @@ Feeds are checked every 10 minutes; tweets arrive continuously.
     │            │        market impact 1-5 · "none" is capped at 3      │
     │            │        drops anything below MIN_IMPORTANCE (4)         │
     │            ▼                                                       │
-    │   3.  writer.py     RSS: AI rewrite · X: passed through as-is      │
-    │            │        deepseek-v3.2 · brief posts get ⚡              │
+    │   3.  continuity.py AI · how does this sit next to what we just    │
+    │            │        posted? sibling or standalone, and what has     │
+    │            │        already been explained to the reader            │
     │            ▼                                                       │
-    │   4.  editor.py     AI · approve or reject, naming a rule          │
+    │   4.  writer.py     AI rewrite into the house voice                │
+    │            │        deepseek-v3.2                                   │
+    │            ▼                                                       │
+    │   5.  editor.py     AI · approve or reject, naming a rule          │
     │            │        minimax-m2.7 · different lab from the writer   │
     │            ▼                                                       │
-    │   5.  publisher.py  add the one emoji + source link, then send    │
+    │   6.  publisher.py  add the source link, then send                 │
     │            │        max 2 per round, 12 per hour, 60 per day       │
     │            ▼                                                       │
     │      YOUR TELEGRAM CHANNEL                                         │
@@ -282,6 +286,24 @@ weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
   cost, which is seventeen times higher.
 - **Fails soft:** if it breaks, we fall back to the source's own topic and carry
   on. It is an optimiser, not a safety gate.
+
+### `continuity.py` (AI)
+- **What:** the only station that sees the incoming story and the channel's own
+  published posts together. It answers two questions the dedup check does not:
+  is this the *neighbour* of something the reader just read, and what have we
+  already explained to them?
+- **Why it exists:** on 31 Aug 2026 the channel posted four government bond
+  yields in one day — France 30y, US 10y, US 5y, France 10y — each rebuilt from
+  the same skeleton with a different number, each re-explaining what a yield is.
+  Every single post was correct. The sequence read like a machine.
+- **Sibling ≠ duplicate.** The dedup check had already ruled on the US 5-year
+  and got it right: "differs only by a number", not the same event. Different
+  event, same conversation, is a question nobody was asking.
+- **A sibling is published as a Telegram reply** to the post it belongs with,
+  and the editor is shown that parent post — otherwise a reference back to it
+  reads as the writer inventing a fact.
+- **Fails open.** No brief means the writer behaves exactly as it did before
+  this node existed: a duller post, not a wrong one.
 
 ### `writer.py` (AI)
 - **What:** rewrites every story — articles and tweets alike — into one house

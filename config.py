@@ -319,6 +319,22 @@ PERSONA_PATH = HERE / "brain" / "persona.md"
 PERSONA_RECENT_POSTS = _get_int("PERSONA_RECENT_POSTS", 15)
 
 
+# --- Continuity: how this post should sit next to the ones before it ---
+
+# One cheap call per post, so the same model as the sorter. The job is reading
+# comprehension over a short list, not writing, and a slow model here eats the
+# latency budget the whole channel is built around.
+CONTINUITY_MODEL = _get("CONTINUITY_MODEL", "deepseek/deepseek-v3.2")
+
+# Fails open: past this the writer works without a brief, which is how the
+# channel behaved before this node existed.
+CONTINUITY_TIMEOUT_SECONDS = _get_int("CONTINUITY_TIMEOUT_SECONDS", 25)
+
+# Posts the brief compares against. Shorter than the writer's voice window on
+# purpose — a sibling that went out two days ago is not one the reader remembers.
+CONTINUITY_RECENT_POSTS = _get_int("CONTINUITY_RECENT_POSTS", 8)
+
+
 # =============================================================================
 # MISC
 # =============================================================================

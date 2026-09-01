@@ -18,7 +18,7 @@ from typing import Any
 
 import config
 from brain import persona_loader
-from nodes import dedup, editor, publisher, sorter, writer
+from nodes import continuity, dedup, editor, publisher, sorter, writer
 from utils import db, logger as log_setup
 
 log = log_setup.get("brain")
@@ -47,7 +47,7 @@ def route_after_sorter(state: dict) -> str:
         return "end"
     if state.get("relationship") == "continuation":
         return "continuation"
-    return "write"
+    return "continuity"
 
 
 def route_after_writer(state: dict) -> str:
@@ -176,7 +176,40 @@ async def sorter_node(state: dict) -> dict[str, Any]:
 
 
 # =============================================================================
-# STATION 3: write the post
+# STATION 3: how this post sits next to the last ones
+# =============================================================================
+
+async def continuity_node(state: dict) -> dict[str, Any]:
+    """Read the published posts and brief the writer on how to sit beside them.
+
+    The only station that sees the incoming story and the channel's own output
+    together. Fails open: no brief means the writer works as it did before.
+    """
+    item = state["item"]
+    recent = db.get_recent_posts_for_continuity(config.CONTINUITY_RECENT_POSTS)
+    brief = await continuity.execute(item, recent)
+
+    update: dict[str, Any] = {"continuity": brief}
+
+    if brief["relation"] == "sibling":
+        log.info("Item %s belongs with message %s", item["id"], brief["sibling_of"])
+        if not state.get("dry_run"):
+            db.bump_counter("sibling_detected")
+        # Threaded under the post it belongs with, the way a continuation is.
+        # A continuation already has its parent and keeps it.
+        if not state.get("reply_to_message_id"):
+            update["reply_to_message_id"] = brief["sibling_of"]
+            # The editor needs it too, or a reference back to the parent's
+            # facts looks like the writer inventing them.
+            parent = next((r["post_html"] for r in recent
+                           if r["telegram_message_id"] == brief["sibling_of"]), "")
+            update["parent_post_html"] = parent
+
+    return update
+
+
+# =============================================================================
+# STATION 4: write the post
 # =============================================================================
 
 async def writer_node(state: dict) -> dict[str, Any]:
@@ -210,6 +243,7 @@ async def writer_node(state: dict) -> dict[str, Any]:
         "editor_feedback": feedback,
         "persona": persona,
         "recent_posts": recent_posts,
+        "continuity_text": continuity.as_text(state.get("continuity") or {}),
     }
 
     post_html = await writer.execute(item, **writer_kwargs)
@@ -321,7 +355,7 @@ async def continuation_writer_node(state: dict) -> dict[str, Any]:
 
 
 # =============================================================================
-# STATION 4: the editor decides
+# STATION 5: the editor decides
 # =============================================================================
 
 async def editor_node(state: dict) -> dict[str, Any]:
@@ -339,6 +373,7 @@ async def editor_node(state: dict) -> dict[str, Any]:
         item, state["post_html"], state["post_id"],
         record=not dry,
         attempt=rewrite_count + 1,
+        parent_post=state.get("parent_post_html", ""),
     )
 
     if decision["error"]:
@@ -385,7 +420,7 @@ async def editor_node(state: dict) -> dict[str, Any]:
 
 
 # =============================================================================
-# STATION 5: send it
+# STATION 6: send it
 # =============================================================================
 
 async def publish_node(state: dict) -> dict[str, Any]:

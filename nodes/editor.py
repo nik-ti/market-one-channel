@@ -81,6 +81,18 @@ Your own knowledge of the world is older than that. When the post asserts someth
 ## How to read the post
 Go phrase by phrase, not sentence by sentence. For each noun, number, name, title and verb in the post, find the words in the source it came from. A sentence can be broadly true and still contain one phrase nobody wrote. That phrase is the whole reason this node exists.
 
+## When the post is a reply
+Some posts go out as a reply to one this channel already published, and you will be shown that earlier post above the source. When you are, it is a second source, and it is a real one: a phrase whose words you can point at in that earlier post is NOT drift.
+
+  Earlier post: "The yield on the US 10-year Treasury note has reached 4.75%."
+  Source:       "*US 5-YEAR YIELD RISES TO 4.5%"
+  Reply:        "...after the 10-year reached 4.75% earlier today."   → fine. Point at the earlier post.
+  Reply:        "...extending a selloff across government bonds."     → FACTUAL_DRIFT. Neither text says selloff.
+
+A reply is also allowed to LEAN on the earlier post instead of repeating it, so a short post that only makes full sense next to its parent is complete, not INCOMPLETE.
+
+Everything else must still come from the reply's own source. The earlier post widens what is established; it does not lift the rules.
+
 ## Reject a post ONLY for one of these specific reasons
 
 * FACTUAL_DRIFT — the post states something the source does not say. A number, name, date, claim, or description that
@@ -106,8 +118,9 @@ Go phrase by phrase, not sentence by sentence. For each noun, number, name, titl
         Post:   "disrupted operations at the port"    → FACTUAL_DRIFT. Different claim, vaguer and wider.
       Read the headline as carefully as the body — it is the part most readers see, and the part most often loosened.
 
-  THE TEST: could you point at the exact words in the source this phrase came from? If not, reject. "It is true" and
-  "it is a fair summary" are not answers to that question.
+  THE TEST: could you point at the exact words this phrase came from — in the source, or, when this post is a reply, in
+  the earlier post shown to you above it? If not, reject. "It is true" and "it is a fair summary" are not answers to
+  that question.
 
   The ONE exception is the short definition of a technical term the post is required to explain — "an ETF, a fund that
   tracks an asset's price" is expected and is not drift.
@@ -184,7 +197,7 @@ def _check_calibration() -> None:
 
 
 async def execute(item, post_html: str, post_id: int, record: bool = True,
-                  attempt: int = 1) -> dict:
+                  attempt: int = 1, parent_post: str = "") -> dict:
     """Judge one finished post. Records the decision either way.
 
     Returns {approved, rules_broken, reason, confidence, error}. On error,
@@ -192,13 +205,23 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
 
     `record=False` keeps a rehearsal out of the real rejection statistics.
     `attempt` lets the audit log tell a first draft from a rewrite.
+    `parent_post` is the published post this one replies to, when there is one:
+    without it a reply reads as inventing the facts it is pointing back at.
     """
     source_text = (item["body"] or "")[:1500]
     started = time.monotonic()
 
     system_prompt = PROMPT.format(today=_today())
 
+    reply_context = ""
+    if parent_post:
+        reply_context = (
+            f"## The post this one replies to (already published by this channel)\n"
+            f"{parent_post}\n\n"
+        )
+
     user_message = (
+        f"{reply_context}"
         f"## The original source\n"
         f"From: {item['source_name']}\n"
         f"Headline: {item['title']}\n"

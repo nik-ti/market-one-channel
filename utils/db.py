@@ -635,6 +635,21 @@ def get_recent_sent_posts(limit: int) -> list[sqlite3.Row]:
     ))
 
 
+def get_recent_posts_for_continuity(limit: int) -> list[sqlite3.Row]:
+    """Recent posts with their message id and send time, newest first.
+
+    The continuity node needs both: the time is what makes a sibling recognisable,
+    and the message id is what the publisher replies to.
+    """
+    return list(conn().execute(
+        "SELECT id, post_html, sent_at, telegram_message_id FROM posts "
+        "WHERE status = 'sent' AND post_html != '' "
+        "AND telegram_message_id IS NOT NULL "
+        "ORDER BY sent_at DESC, id DESC LIMIT ?",
+        (limit,),
+    ))
+
+
 def set_item_continuation(item_id: int, parent_item_id: int) -> None:
     """Record that an item is a continuation of an earlier item."""
     conn().execute(

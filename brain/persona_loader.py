@@ -14,7 +14,7 @@ log = log_setup.get("persona")
 _persona_text: str | None = None
 
 
-def _visible_text(post_html: str) -> str:
+def visible_text(post_html: str) -> str:
     """Strip HTML tags and the source link line for a readable voice sample."""
     import re
     # Drop the source credit line if present. Two spellings, because posts sent
@@ -51,6 +51,6 @@ def get_recent_posts(n: int | None = None) -> list[str]:
     if n is None:
         n = config.PERSONA_RECENT_POSTS
     rows = db.get_recent_sent_posts(n)
-    return [_visible_text(row["post_html"]) for row in rows if row["post_html"].strip()]
+    return [visible_text(row["post_html"]) for row in rows if row["post_html"].strip()]
 
 

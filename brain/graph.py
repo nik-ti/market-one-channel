@@ -15,13 +15,16 @@ THE SHAPE
        │
        passes
        │
-       ├─ new story ───────► writer ──► editor ──┬─ rewrite ─► writer (once)
-       │                                        ├─ declined ──────────► END
-       │                                        └─ approved ──► publish ─► END
+       ├─ new story ──► continuity ──► writer ──► editor ──┬─ rewrite ─► writer
+       │                                                   ├─ declined ──► END
+       │                                                   └─ approved ──► publish ─► END
        │
        └─ continuation ──► continuation_writer ──► editor ──┬─ rewrite (once)
                                                             ├─ declined
                                                             └─ approved ──► publish
+
+The rewrite loop goes back to the writer, not to continuity: the brief is
+already in the state, so a second draft costs one call, not two.
 
 The item is kept as a plain dict rather than the sqlite row so the state stays
 serialisable, which keeps the door open to a checkpointer later.
@@ -47,6 +50,7 @@ class BrainState(TypedDict, total=False):
 
     relationship: str           # "new" | "duplicate" | "continuation"
     matched_item_id: int | None
+    continuity: dict            # how this post sits next to the published ones
     sorter_verdict: dict
     post_html: str
     used_ai: bool
@@ -68,6 +72,7 @@ def build_graph():
     builder.add_node("relationship_check", nodes.relationship_check)
     builder.add_node("fetch_parent", nodes.fetch_parent)
     builder.add_node("sorter", nodes.sorter_node)
+    builder.add_node("continuity", nodes.continuity_node)
     builder.add_node("writer", nodes.writer_node)
     builder.add_node("continuation_writer", nodes.continuation_writer_node)
     builder.add_node("editor", nodes.editor_node)
@@ -81,8 +86,10 @@ def build_graph():
     builder.add_edge("fetch_parent", "sorter")
     builder.add_conditional_edges(
         "sorter", nodes.route_after_sorter,
-        {"write": "writer", "continuation": "continuation_writer", "end": END},
+        {"continuity": "continuity", "continuation": "continuation_writer",
+         "end": END},
     )
+    builder.add_edge("continuity", "writer")
     builder.add_conditional_edges(
         "writer", nodes.route_after_writer,
         {"edit": "editor", "end": END},
@@ -121,6 +128,7 @@ async def run_item(item_row, *, dry_run: bool = False) -> dict[str, Any]:
         "rewrite_count": 0,
         "editor_feedback": "",
         "recent_posts": [],
+        "continuity": {},
         "outcome": "",
     }
     return await graph.ainvoke(initial)

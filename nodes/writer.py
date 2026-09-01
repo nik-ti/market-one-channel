@@ -359,14 +359,16 @@ def is_brief(item) -> bool:
 
 
 async def execute(item, has_image: bool = False, editor_feedback: str = "",
-                  recent_posts: list[str] | None = None, persona: str = "") -> str:
+                  recent_posts: list[str] | None = None, persona: str = "",
+                  continuity_text: str = "") -> str:
     """Write the post for one item.
 
     Returns the Telegram HTML, or an EMPTY STRING meaning "leave this item and
     try again next cycle" — never "publish nothing".
 
     `editor_feedback` carries the rejection reason from the rewrite loop.
-    `recent_posts` are voice examples, not facts to reuse. `persona` is
+    `recent_posts` are the channel's last posts. `continuity_text` is the
+    editor's brief on how this one sits beside them. `persona` is
     brain/persona.md.
     """
 
@@ -411,15 +413,27 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
     if persona.strip():
         system_prompt = f"{persona}\n\n---\n\n{system_prompt}"
 
-    # Fenced off explicitly, or the model reuses their facts.
+    # One heading over two different things: how the channel sounds, and what
+    # the reader has already read. The old wording said only the first ("voice
+    # examples only — DO NOT repeat their facts"), so the model matched the
+    # shape of the previous post and changed the number — four bond yields in a
+    # day, each rebuilt from the same skeleton.
     if recent_posts:
         examples = "\n\n".join(
             f"Example {i + 1}:\n{p}" for i, p in enumerate(recent_posts[:10])
         )
         system_prompt += (
-            f"\n\n---\nRECENT CHANNEL POSTS (voice examples only — DO NOT repeat their facts):\n\n"
+            "\n\n---\nWHAT THE CHANNEL HAS ALREADY PUBLISHED (newest first)\n\n"
+            "These serve two purposes. They are how the channel sounds — match "
+            "it. They are also what your reader has just read: do not state "
+            "their facts as if they were part of your story, and do not rebuild "
+            "one of them with a different number in it. If your story belongs "
+            "beside one of them, the instruction below says so.\n\n"
             f"{examples}"
         )
+
+    if continuity_text:
+        system_prompt += f"\n\n---\n{continuity_text}"
 
     try:
         raw = await openrouter.chat_text(
