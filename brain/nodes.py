@@ -197,7 +197,7 @@ async def continuity_node(state: dict) -> dict[str, Any]:
             db.bump_counter("sibling_detected")
         # Threaded under the post it belongs with, the way a continuation is.
         # A continuation already has its parent and keeps it.
-        if not state.get("reply_to_message_id"):
+        if config.SIBLING_REPLIES and not state.get("reply_to_message_id"):
             update["reply_to_message_id"] = brief["sibling_of"]
             # The editor needs it too, or a reference back to the parent's
             # facts looks like the writer inventing them.

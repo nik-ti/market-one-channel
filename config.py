@@ -42,6 +42,16 @@ def _get_float(name: str, default: float) -> float:
         return default
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    """Read an on/off setting. Anything but a recognised word keeps the default."""
+    value = _get(name, "").lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 # =============================================================================
 # SECRETS (from .env)
 # =============================================================================
@@ -333,6 +343,47 @@ CONTINUITY_TIMEOUT_SECONDS = _get_int("CONTINUITY_TIMEOUT_SECONDS", 25)
 # Posts the brief compares against. Shorter than the writer's voice window on
 # purpose — a sibling that went out two days ago is not one the reader remembers.
 CONTINUITY_RECENT_POSTS = _get_int("CONTINUITY_RECENT_POSTS", 8)
+
+# Threading a sibling as a Telegram reply fired on 66% of posts in its first
+# day — in markets everything is related to something, so a per-item "is this
+# related?" question can only ever answer yes. The brief itself still earns its
+# keep (it is what stops the writer re-explaining a bond yield eight times);
+# only the reply is off. Story clustering replaces this properly.
+SIBLING_REPLIES = _get_bool("SIBLING_REPLIES", False)
+
+
+# =============================================================================
+# STORIES
+# =============================================================================
+# The unit of work: items join a running story, and a story posts when it moves.
+
+# Same model as the sorter and the judge. Both questions here are reading
+# comprehension over short text, which is what this model is cheapest at.
+STORY_MODEL = _get("STORY_MODEL", "deepseek/deepseek-v3.2")
+STORY_TIMEOUT_SECONDS = _get_int("STORY_TIMEOUT_SECONDS", 30)
+
+# The free fast path: at or above this cosine an item joins a story with no
+# question asked. There is no matching lower threshold, because there cannot be
+# one — measured on the 1 September wire, items inside ONE story scored
+# 0.43-0.72 against each other while unrelated ones reached 0.79. The ranges
+# overlap, so everything below this goes to a model instead of a number.
+STORY_JOIN_CERTAIN = _get_float("STORY_JOIN_CERTAIN", 0.88)
+
+# A story nobody has added to in this long is over. A new item that looks like
+# it cannot reopen it — it starts a fresh story, which is what a reader coming
+# back the next day would expect.
+STORY_IDLE_HOURS = _get_int("STORY_IDLE_HOURS", 12)
+
+# A floor against two wires seconds apart becoming two posts — nothing more.
+# It was 25 minutes, and a timer silenced Iran announcing its retaliation on
+# 1 September. How loud a running story is allowed to be is now the gate's
+# judgement, which is told how long it has been and holds a higher bar when the
+# last post is recent.
+STORY_MIN_GAP_MINUTES = _get_int("STORY_MIN_GAP_MINUTES", 6)  # anti-double-post only
+
+# A runaway stop, not an editorial rule — the gate is told the count and weighs
+# it. At 6 this was a rule, and it silenced the second half of a war.
+STORY_MAX_POSTS = _get_int("STORY_MAX_POSTS", 12)
 
 
 # =============================================================================
