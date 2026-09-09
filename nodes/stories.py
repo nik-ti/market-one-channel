@@ -13,7 +13,7 @@ and the seventh yield print becomes silence.
 
 TWO QUESTIONS, KEPT SEPARATE:
 
-  which story does this belong to?   ->  obvious_home() then place()
+  which story does this belong to?   ->  place()
   has that story moved enough?       ->  should_post()
 
 The first is a broader question than dedup asks. dedup.py rules on "the same
@@ -21,6 +21,12 @@ EVENT" and is right to be strict — two different events must not be merged int
 one post. A story is wider: the strikes, Iran's answer, and oil spiking on it are
 three events and one story. That is why this asks its own question rather than
 reusing the dedup verdict.
+
+A story remembers itself as a SUMMARY IN WORDS, rewritten from each post as it
+goes out, not as an averaged vector. Measured on the 1 September wire, items
+inside one story scored 0.43-0.72 against each other while unrelated ones
+reached 0.79 — the ranges overlap, so no arithmetic can separate them and a
+centroid was only ever dead weight. A sentence can also be read by a person.
 
 COST. Placing costs one call per item — the same as the node this replaces —
 and shows the model every open story at once rather than asking about each in
@@ -36,20 +42,66 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-import numpy as np
-
 import config
-from utils import embeddings, logger as log_setup, openrouter
+from brain import persona_loader
+from utils import db, logger as log_setup, openrouter
 
 log = log_setup.get("stories")
+
+# Both model calls here fail OPEN — placement into a new story, the gate into
+# posting. That is the right default, and it is also why a dead STORY_MODEL is
+# invisible: the channel quietly reverts to one post per item and nothing looks
+# broken. Same reasoning, and same alert, as dedup's meaning check.
+_consecutive_failures = 0
+FAILURE_ALERT_AFTER = 10
+
+
+def _record_failure(what: str, story_or_item: str) -> None:
+    """Count a fail-open, and shout once they start piling up."""
+    global _consecutive_failures
+    _consecutive_failures += 1
+    db.bump_counter(f"story_{what}_failed")
+
+    if _consecutive_failures == FAILURE_ALERT_AFTER:
+        from utils import telegram_error
+        telegram_error.send_error(
+            f"The story layer has failed {_consecutive_failures} times in a row "
+            f"(latest: {what} on {story_or_item}). It fails open, so the channel "
+            f"is still posting — but it is now posting one item per post again, "
+            f"with no grouping and no silence. That is exactly what this layer "
+            f"exists to prevent, and nothing else will look wrong.\n\n"
+            f"Check STORY_MODEL and OpenRouter.",
+            node_name="stories",
+        )
+
+
+def _record_success() -> None:
+    """Reset the run after a call that worked."""
+    global _consecutive_failures
+    if _consecutive_failures:
+        log.info("The story layer is working again after %d failure(s)",
+                 _consecutive_failures)
+        _consecutive_failures = 0
+
+
+def _span(then: datetime | None, now: datetime) -> str:
+    """A duration in words. Ages are shown to the model, so they read like prose."""
+    if then is None:
+        return "unknown"
+    minutes = int((now - then).total_seconds() // 60)
+    if minutes < 60:
+        return f"{max(minutes, 0)} min"
+    if minutes < 60 * 24:
+        return f"{minutes // 60}h {minutes % 60:02d}m"
+    return f"{minutes // (60 * 24)}d"
 
 
 @dataclass
 class Story:
     """One running story: the items in it, and what the reader has been told."""
     id: int
-    headline: str
-    centroid: np.ndarray
+    headline: str                                    # the first item's title, fixed
+    summary: str = ""                                # what the story IS now, from the last post
     item_ids: list[int] = field(default_factory=list)
     first_at: datetime | None = None
     last_item_at: datetime | None = None
@@ -63,10 +115,8 @@ class Story:
         self.pending = [i for i in self.pending if i["id"] != item["id"]]
         self.item_ids = [i for i in self.item_ids if i != item["id"]]
 
-    def absorb(self, item: dict, vector: np.ndarray, when: datetime) -> None:
-        """Add an item, moving the centroid to the mean of everything in the story."""
-        n = len(self.item_ids)
-        self.centroid = (self.centroid * n + vector) / (n + 1)
+    def absorb(self, item: dict, when: datetime) -> None:
+        """Add an item to the story, in memory."""
         self.item_ids.append(item["id"])
         self.pending.append(item)
         self.last_item_at = when
@@ -82,31 +132,6 @@ class Story:
         if self.last_item_at is None:
             return False
         return (now - self.last_item_at) < timedelta(hours=config.STORY_IDLE_HOURS)
-
-
-def obvious_home(vector: np.ndarray, stories: list["Story"], now: datetime
-                 ) -> tuple["Story | None", float]:
-    """The free fast path: a story so close there is nothing to ask about.
-
-    Everything else goes to place(). Measured on the 1 September wire, items
-    inside ONE story scored 0.43-0.72 against each other while unrelated ones
-    reached 0.79 — the ranges overlap, so no threshold can separate them. This
-    only claims the top of the range, where it is safe.
-    """
-    best: Story | None = None
-    best_score = 0.0
-
-    for story in stories:
-        if not story.is_live(now):
-            continue
-        score = float(np.dot(vector, story.centroid) /
-                      ((np.linalg.norm(vector) * np.linalg.norm(story.centroid)) or 1.0))
-        if score > best_score:
-            best, best_score = story, score
-
-    if best is not None and best_score >= config.STORY_JOIN_CERTAIN:
-        return best, best_score
-    return None, best_score
 
 
 PLACE_SYSTEM = """You place a new wire item into the story it belongs to.
@@ -135,6 +160,12 @@ Iran" and, nine minutes later, "US carrying out strikes on Iranian targets" are
 not two stories — the second says what the first was. Whenever a new item names
 the cause, the source, the confirmation or the scale of something already in a
 story, it joins that story.
+
+AGE IS EVIDENCE, NOT A RULE. Each story below shows how long it has been running
+and how long since anything was added to it. A story nobody has touched for six
+hours is an unlikely home for something breaking now, even when the words match.
+A story with an item four minutes ago is where a fast-moving situation belongs.
+Weigh it against the reading; do not let it decide on its own.
 
 Answer with the number of the story it joins, or 0 if it starts a new one. Judge
 it on what the story CONTAINS, listed below, not on the first line of it — a
@@ -168,12 +199,22 @@ async def place(item: dict, stories: list["Story"], now: datetime
 
     listed = []
     for n, story in enumerate(live, 1):
-        # The opening headline alone misleads once a story has developed: a story
-        # that began "TWO TANKERS HIT IN HORMUZ" and is now a war reads, from its
-        # first line, as a story about shipping. Show what is actually in it.
-        age = int((now - story.last_item_at).total_seconds() // 60) if story.last_item_at else 0
-        contents = [f"    - {(i['title'] or '')[:100]}" for i in story.recent_titles(3)]
-        listed.append(f"[{n}] last item {age} min ago\n" + "\n".join(contents))
+        # Both halves matter. The summary is what the channel has SAID, which is
+        # what a reader would recognise; the unposted items are the freshest
+        # evidence of where the story is going and are not in the summary yet.
+        # Showing only the opening headline misleads once a story has developed.
+        block = [f"[{n}] running {_span(story.first_at, now)}, "
+                 f"last item {_span(story.last_item_at, now)} ago"]
+        if story.summary:
+            block.append(f"    so far: {story.summary[:240]}")
+        fresh = [i for i in story.pending]
+        if fresh:
+            block.append("    just in, not yet posted:")
+            block += [f"      - {(i['title'] or '')[:100]}" for i in fresh[-3:]]
+        elif story.posted_items:
+            block += [f"      - {(i['title'] or '')[:100]}"
+                      for i in story.posted_items[-2:]]
+        listed.append("\n".join(block))
 
     user = (
         "## Open stories\n\n" + "\n\n".join(listed) +
@@ -193,8 +234,10 @@ async def place(item: dict, stories: list["Story"], now: datetime
     except Exception as error:  # noqa: BLE001
         log.warning("Could not place item %s (%s) — starting its own story",
                     item["id"], error)
+        _record_failure("place", f"item {item['id']}")
         return None, f"could not be asked: {error}"
 
+    _record_success()
     choice = answer.get("story") or 0
     reason = str(answer.get("reason", ""))[:200]
     if not isinstance(choice, int) or not 1 <= choice <= len(live):
@@ -302,12 +345,15 @@ async def should_post(story: Story, now: datetime) -> dict:
     # story has had is something the editor is told below; only a runaway is
     # stopped here.
     if len(story.posts) >= config.STORY_MAX_POSTS:
+        log.warning("Story %s hit the runaway stop at %d posts — it is being "
+                    "silenced from here on", story.id, len(story.posts))
         return {"verdict": "hold", "angle": "",
                 "reason": f"runaway stop: {len(story.posts)} posts on one story"}
 
     known = "\n\n".join(f"[post {i + 1}]\n{p}" for i, p in enumerate(story.posts))
+    pending = story.pending[-config.STORY_MAX_PENDING:]
     fresh = "\n".join(
-        f"- {i['source_name']}: {(i['title'] or '')[:180]}" for i in story.pending
+        f"- {i['source_name']}: {(i['title'] or '')[:180]}" for i in pending
     )
 
     try:
@@ -317,7 +363,7 @@ async def should_post(story: Story, now: datetime) -> dict:
                 user=(f"## What the reader already knows\n"
                       f"({len(story.posts)} posts on this story so far, the last "
                       f"one {quiet:.0f} minutes ago)\n\n{known}\n\n"
-                      f"## What has come in since ({len(story.pending)} items)\n\n{fresh}"),
+                      f"## What has come in since ({len(pending)} items)\n\n{fresh}"),
                 schema=GATE_SCHEMA, schema_name="gate",
                 temperature=0.0, max_tokens=400,
             ),
@@ -327,8 +373,10 @@ async def should_post(story: Story, now: datetime) -> dict:
         # Fail open, matching dedup and the judge: a duplicate-feeling post is a
         # smaller failure than a story the channel silently sat on.
         log.warning("The story gate failed for story %s (%s) — posting", story.id, error)
+        _record_failure("gate", f"story {story.id}")
         return {"verdict": "post", "angle": "", "reason": f"gate unavailable: {error}"}
 
+    _record_success()
     verdict = str(answer.get("verdict", "post"))
     if verdict not in {"post", "hold", "not_this_story"}:
         verdict = "post"
@@ -347,9 +395,10 @@ def as_source(story: Story) -> dict:
     appear in the text it is given. This widens what it was given from one wire
     item to all of them, which is the whole point.
     """
-    newest = story.pending[-1]
+    pending = story.pending[-config.STORY_MAX_PENDING:]
+    newest = pending[-1]
     parts = []
-    for item in story.pending:
+    for item in pending:
         head = (item["title"] or "").strip()
         body = (item["body"] or "").strip()
         parts.append(f"[{item['source_name']}] {head}\n{body}".strip())
@@ -364,7 +413,7 @@ def as_source(story: Story) -> dict:
         "image_url": newest.get("image_url") or "",
         "topic": newest.get("topic") or "",
         "topic_hint": newest.get("topic_hint") or "",
-        "importance": max((i.get("importance") or 0) for i in story.pending),
+        "importance": max((i.get("importance") or 0) for i in pending),
     }
 
 
@@ -393,16 +442,51 @@ def brief_for_writer(story: Story, angle: str) -> str:
     return "\n\n".join(parts)
 
 
-async def vector_for(item: dict) -> np.ndarray | None:
-    """The item's meaning-vector, from storage if we already have it."""
-    blob = item.get("embedding")
-    if blob:
-        return embeddings.from_blob(blob)
+# --- Hydration: a Story is a snapshot of the database, never memory ---
 
-    from utils import textclean
-    text = textclean.for_embedding(f"{item['title']}\n{(item['body'] or '')[:400]}")
-    got = await embeddings.embed_one(text)
-    return np.array(got, dtype=np.float32) if got else None
+def _hydrate(row, now: datetime) -> Story:
+    """Build one Story from its row plus the items and posts that point at it."""
+    story = Story(
+        id=row["id"],
+        headline=row["headline"],
+        summary=row["summary"],
+        first_at=parse_time(row["first_at"]),
+        last_item_at=parse_time(row["last_item_at"]),
+        last_post_at=parse_time(row["last_post_at"]) if row["last_post_at"] else None,
+    )
+
+    for item in db.get_story_items(story.id):
+        story.item_ids.append(item["id"])
+        if item["status"] in ("queued", "held"):
+            story.pending.append(dict(item))
+        else:
+            story.posted_items.append(dict(item))
+
+    # visible_text, not raw post_html: the tags and the source byline would both
+    # waste tokens and teach the model to put markup in its answers. The replay
+    # tool strips the same way, which is what keeps the backtest honest.
+    story.posts = [persona_loader.visible_text(p["post_html"])
+                   for p in db.get_story_posts(story.id)]
+    return story
+
+
+def load_open(now: datetime, limit: int | None = None) -> list[Story]:
+    """Every story a new item could still join, most recently active first.
+
+    The list is CAPPED before it reaches place(), which answers with an index
+    into it. A long list makes the prompt long and the numbering easy to get
+    wrong, and the oldest candidates are the least likely answers anyway.
+    """
+    rows = db.load_live_stories(config.STORY_IDLE_HOURS,
+                                limit or config.STORY_MAX_OPEN)
+    return [_hydrate(row, now) for row in rows]
+
+
+def load_one(story_id: int, now: datetime) -> Story | None:
+    """Re-read one story. Used after attaching an item, so the gate and the
+    writer see exactly the rows the database holds rather than a patched copy."""
+    row = db.get_story(story_id)
+    return _hydrate(row, now) if row is not None else None
 
 
 def parse_time(value: str) -> datetime:

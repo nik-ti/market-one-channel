@@ -14,11 +14,12 @@ queued. After config.MAX_ATTEMPTS it is marked failed.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import config
 from brain import persona_loader
-from nodes import continuity, dedup, editor, publisher, sorter, writer
+from nodes import dedup, editor, publisher, sorter, stories, writer
 from utils import db, logger as log_setup
 
 log = log_setup.get("brain")
@@ -34,20 +35,23 @@ FIXABLE_RULES = frozenset({
 # Conditional edges in brain/graph.py call these. A node sets state["outcome"]
 # when the item's journey is over; an empty outcome means "carry on".
 
-def route_after_relationship(state: dict) -> str:
-    if state.get("outcome"):
-        return "drop"
-    if state.get("relationship") == "continuation":
-        return "continuation"
-    return "sort"
+def route_after_dedup(state: dict) -> str:
+    return "drop" if state.get("outcome") else "sort"
 
 
 def route_after_sorter(state: dict) -> str:
-    if state.get("outcome"):
-        return "end"
-    if state.get("relationship") == "continuation":
-        return "continuation"
-    return "continuity"
+    return "end" if state.get("outcome") else "place"
+
+
+def route_after_place(state: dict) -> str:
+    # Placement still runs when the pacing limits forbid posting. An item that
+    # is not filed into its story before QUEUE_TTL_MINUTES expires takes its
+    # content out of that story with it, and the story never learns of it.
+    return "end" if state.get("place_only") else "gate"
+
+
+def route_after_gate(state: dict) -> str:
+    return "end" if state.get("outcome") else "write"
 
 
 def route_after_writer(state: dict) -> str:
@@ -57,66 +61,30 @@ def route_after_writer(state: dict) -> str:
 def route_after_editor(state: dict) -> str:
     if state.get("outcome"):
         return "end"
-    if state.get("rewrite_requested"):
-        # A continuation that needs fixing should keep its parent context.
-        if state.get("relationship") == "continuation":
-            return "rewrite_continuation"
-        return "rewrite"
-    return "publish"
+    return "rewrite" if state.get("rewrite_requested") else "publish"
 
 
-async def relationship_check(state: dict) -> dict[str, Any]:
-    """Classify the item as duplicate, continuation, or new.
+async def dedup_check(state: dict) -> dict[str, Any]:
+    """Drop an item the channel has already covered.
 
-    A continuation is threaded as a reply to the story it continues.
+    Only two answers now. "This continues something" used to be a third, handled
+    by a parallel branch of the graph; the story layer answers that question
+    better, because it sees every open story rather than one candidate pair.
     """
     item = state["item"]
-    item_id = item["id"]
-    dry = state.get("dry_run", False)
+    verdict, _matched_id, score = await dedup.classify(item, with_meaning=True)
 
-    if dry:
-        verdict, matched_id, score = await dedup.classify(item, with_meaning=True)
-    else:
-        # Same classify, but statuses and counters are recorded here.
-        verdict, matched_id, score = await dedup.classify(item, with_meaning=True)
-        if verdict == "duplicate":
-            db.set_item_status(item_id, "duplicate", "same event as a recent story")
-            db.bump_counter("deduped_fuzzy" if score >= 100 else "deduped_meaning" if score >= config.COSINE_CERTAIN else "deduped_judge")
-        elif verdict == "continuation":
-            db.set_item_status(item_id, "continuation",
-                               f"continues item {matched_id} (score {score:.3f})")
-            db.bump_counter("continuation_detected")
-            if matched_id:
-                db.set_item_continuation(item_id, matched_id)
+    if verdict != "duplicate":
+        return {}
 
-    if verdict == "duplicate":
-        return {"relationship": "duplicate", "outcome": "duplicate"}
-    if verdict == "continuation":
-        return {"relationship": "continuation", "matched_item_id": matched_id, "similarity_score": score}
-
-    return {"relationship": "new"}
-
-
-async def fetch_parent(state: dict) -> dict[str, Any]:
-    """Look up the Telegram message a continuation will reply to.
-
-    If the older item was never published a reply is impossible, so it falls
-    back to a new standalone story.
-    """
-    matched_id = state.get("matched_item_id")
-    if not matched_id:
-        return {"relationship": "new"}
-
-    parent = db.get_published_post_for_item(matched_id)
-    if parent is None:
-        log.info("Continuation item %s points to unpublished item %s — "
-                 "falling back to new story", state["item"]["id"], matched_id)
-        return {"relationship": "new"}
-
-    return {
-        "reply_to_message_id": parent["telegram_message_id"],
-        "parent_post_html": parent["post_html"],
-    }
+    if not state.get("dry_run", False):
+        db.set_item_status(item["id"], "duplicate", "same event as a recent story")
+        db.bump_counter(
+            "deduped_fuzzy" if score >= 100
+            else "deduped_meaning" if score >= config.COSINE_CERTAIN
+            else "deduped_judge"
+        )
+    return {"outcome": "duplicate"}
 
 
 async def sorter_node(state: dict) -> dict[str, Any]:
@@ -149,11 +117,7 @@ async def sorter_node(state: dict) -> dict[str, Any]:
         return {"sorter_verdict": verdict, "outcome": "irrelevant"}
 
     # The importance gate — the main control on how trivial the channel feels.
-    # Continuations get a lower bar: the parent story was already vetted, so a
-    # genuine new development of it can post at importance 3.
-    is_continuation = state.get("relationship") == "continuation"
-    min_importance = (config.CONTINUATION_MIN_IMPORTANCE
-                      if is_continuation else config.MIN_IMPORTANCE)
+    min_importance = config.MIN_IMPORTANCE
 
     if verdict["importance"] < min_importance:
         if not dry:
@@ -176,49 +140,127 @@ async def sorter_node(state: dict) -> dict[str, Any]:
 
 
 # =============================================================================
-# STATION 3: how this post sits next to the last ones
+# STATION 3: which story is this, and has it moved?
 # =============================================================================
 
-async def continuity_node(state: dict) -> dict[str, Any]:
-    """Read the published posts and brief the writer on how to sit beside them.
+async def place_story_node(state: dict) -> dict[str, Any]:
+    """Put the item into a running story, or open one for it.
 
-    The only station that sees the incoming story and the channel's own output
-    together. Fails open: no brief means the writer works as it did before.
+    The only station that sees the incoming item and the channel's own output
+    together. Fails open into a NEW story: a wrongly separated item is one extra
+    post, which is what the channel did for every item before this existed.
     """
     item = state["item"]
-    recent = db.get_recent_posts_for_continuity(config.CONTINUITY_RECENT_POSTS)
-    brief = await continuity.execute(item, recent)
+    now = datetime.now(timezone.utc)
+    dry = state.get("dry_run", False)
 
-    update: dict[str, Any] = {"continuity": brief}
+    # Resume first, before paying for a model call. A writer or editor retry
+    # leaves the item queued with its story_id already set, and re-placing it
+    # would either burn a call or file it somewhere else than the first time.
+    existing_id = item.get("story_id")
+    if existing_id:
+        row = db.get_story(existing_id)
+        if row is not None and row["status"] == "live":
+            story = stories.load_one(existing_id, now)
+            if story is not None:
+                log.info("Item %s resumes story %s", item["id"], existing_id)
+                return {"story": story, "story_id": story.id}
 
-    if brief["relation"] == "sibling":
-        log.info("Item %s belongs with message %s", item["id"], brief["sibling_of"])
-        if not state.get("dry_run"):
-            db.bump_counter("sibling_detected")
-        # Threaded under the post it belongs with, the way a continuation is.
-        # A continuation already has its parent and keeps it.
-        if config.SIBLING_REPLIES and not state.get("reply_to_message_id"):
-            update["reply_to_message_id"] = brief["sibling_of"]
-            # The editor needs it too, or a reference back to the parent's
-            # facts looks like the writer inventing them.
-            parent = next((r["post_html"] for r in recent
-                           if r["telegram_message_id"] == brief["sibling_of"]), "")
-            update["parent_post_html"] = parent
+    open_stories = stories.load_open(now)
+    home, why = await stories.place(item, open_stories, now)
 
-    return update
+    if home is None:
+        headline = (item["title"] or "")[:200]
+        if dry:
+            story = stories.Story(id=0, headline=headline, summary=headline)
+            story.absorb(dict(item), now)
+        else:
+            story_id = db.create_story(headline=headline, summary=headline,
+                                       item_id=item["id"], at=db.now_iso())
+            story = stories.load_one(story_id, now)
+            db.bump_counter("story_opened")
+        log.info("Item %s opens story %s: %s", item["id"], story.id, why[:120])
+    else:
+        if dry:
+            home.absorb(dict(item), now)
+            story = home
+        else:
+            db.attach_item_to_story(item["id"], home.id)
+            # Re-read rather than patch in memory, so the gate and the writer
+            # see exactly the rows the database holds — including the topic and
+            # importance the sorter wrote onto older pending items.
+            story = stories.load_one(home.id, now)
+            db.bump_counter("story_joined")
+        log.info("Item %s joins story %s: %s", item["id"], story.id, why[:120])
+
+    if state.get("place_only"):
+        # Left queued on purpose: next round resumes this story for free.
+        return {"story": story, "story_id": story.id, "outcome": "placed"}
+
+    return {"story": story, "story_id": story.id}
 
 
-# =============================================================================
-# STATION 4: write the post
-# =============================================================================
+async def story_gate_node(state: dict) -> dict[str, Any]:
+    """Decide whether the story has moved enough to be worth a post.
+
+    Three answers. "post" folds the whole story into the writer's source;
+    "hold" leaves the item as fuel for the story's next post; "not this story"
+    undoes a bad placement instead of silencing what it misfiled — that last one
+    is why a mis-placed "Fed rate hike odds 66%" is not lost any more.
+    """
+    item = state["item"]
+    story = state["story"]
+    now = datetime.now(timezone.utc)
+    dry = state.get("dry_run", False)
+
+    verdict = await stories.should_post(story, now)
+
+    if verdict["verdict"] == "not_this_story":
+        log.info("Item %s does not belong in story %s (%s) — giving it its own",
+                 item["id"], story.id, verdict["reason"][:100])
+        headline = (item["title"] or "")[:200]
+        if dry:
+            story.eject(dict(item))
+            story = stories.Story(id=0, headline=headline, summary=headline)
+            story.absorb(dict(item), now)
+        else:
+            db.detach_item_from_story(item["id"])
+            story_id = db.create_story(headline=headline, summary=headline,
+                                       item_id=item["id"], at=db.now_iso())
+            story = stories.load_one(story_id, now)
+            db.bump_counter("story_ejected")
+        # A story with no posts always speaks, so this cannot end in silence.
+        verdict = await stories.should_post(story, now)
+
+    if verdict["verdict"] != "post":
+        if not dry:
+            db.set_item_status(item["id"], "held",
+                               f"story {story.id}: {verdict['reason']}")
+            db.bump_counter("story_held")
+        log.info("Holding item %s on story %s: %s",
+                 item["id"], story.id, verdict["reason"][:120])
+        return {"outcome": "held", "story": story, "story_id": story.id,
+                "gate_reason": verdict["reason"]}
+
+    # Folding the story into state["item"] is the one seam: every station after
+    # this keeps working on "an item" and needs to know nothing about stories.
+    return {
+        "item": stories.as_source(story),
+        "trigger_item_id": item["id"],
+        "story": story,
+        "story_id": story.id,
+        "story_angle": verdict["angle"],
+        "story_brief": stories.brief_for_writer(story, verdict["angle"]),
+    }
+
 
 async def writer_node(state: dict) -> dict[str, Any]:
-    """Produce the post text. Everything goes through the writer, tweets included.
+    """Produce the post text from the story the gate approved.
 
-    Tweets used to bypass it via writer.passthrough(), which was safe but sent a
-    third of the channel out in the source account's voice. What keeps the
-    rewrite honest is LENGTH_RULE_BRIEF, which forbids adding any fact not in
-    the source, plus the editor checking the result against it.
+    state["item"] is no longer one wire item: the gate replaced it with the
+    story's pending items folded into one source. The writer's rules are
+    unchanged and still bind — every fact must appear in the text it is given —
+    but that text is now the whole story rather than one wire.
 
     On a rewrite pass state["editor_feedback"] carries the rejection reason and
     state["post_id"] points at the existing draft, whose text is REPLACED rather
@@ -243,7 +285,7 @@ async def writer_node(state: dict) -> dict[str, Any]:
         "editor_feedback": feedback,
         "persona": persona,
         "recent_posts": recent_posts,
-        "continuity_text": continuity.as_text(state.get("continuity") or {}),
+        "brief": state.get("story_brief", ""),
     }
 
     post_html = await writer.execute(item, **writer_kwargs)
@@ -272,7 +314,8 @@ async def writer_node(state: dict) -> dict[str, Any]:
         post_id = existing_post_id
     else:
         post_id = db.create_post(
-            item_id=item_id, topic=state["sorter_verdict"]["topic"],
+            item_id=item_id,
+            topic=item.get("topic") or state["sorter_verdict"]["topic"],
             post_html=post_html, image_url=item.get("image_url") or "",
             writer_model=writer.MODEL,
         )
@@ -291,69 +334,6 @@ async def writer_node(state: dict) -> dict[str, Any]:
             "editor_feedback": "", "rewrite_requested": False}
 
 
-async def continuation_writer_node(state: dict) -> dict[str, Any]:
-    """Write a continuation as a follow-up to the original post.
-
-    The writer sees the parent post and is told to add only what is new.
-    """
-    item = state["item"]
-    item_id = item["id"]
-    dry = state.get("dry_run", False)
-    has_image = bool(item.get("image_url"))
-    feedback = state.get("editor_feedback") or ""
-    existing_post_id = state.get("post_id")
-
-    persona = persona_loader.load_persona()
-    recent_posts = persona_loader.get_recent_posts()
-
-    post_html = await writer.execute_continuation(
-        item,
-        parent_post_html=state.get("parent_post_html", ""),
-        has_image=has_image,
-        editor_feedback=feedback,
-        persona=persona,
-        recent_posts=recent_posts,
-    )
-
-    if not post_html:
-        if dry:
-            return {"outcome": "write_failed", "editor_feedback": "",
-                    "rewrite_requested": False}
-        attempts = db.bump_attempts(item_id)
-        if attempts >= config.MAX_ATTEMPTS:
-            db.set_item_status(item_id, "failed",
-                               f"the continuation writer failed {attempts} times")
-            db.bump_counter("write_failed")
-            return {"outcome": "failed"}
-        return {"outcome": "retry"}
-
-    if dry:
-        return {"post_html": post_html, "used_ai": True, "post_id": 0,
-                "editor_feedback": "", "rewrite_requested": False}
-
-    if existing_post_id:
-        db.update_post_text(existing_post_id, post_html)
-        post_id = existing_post_id
-    else:
-        post_id = db.create_post(
-            item_id=item_id, topic=state["sorter_verdict"]["topic"],
-            post_html=post_html, image_url=item.get("image_url") or "",
-            writer_model=writer.MODEL,
-        )
-        if post_id is None:
-            existing = db.get_post_by_item(item_id)
-            if existing is None:
-                db.set_item_status(item_id, "failed", "post row went missing")
-                return {"outcome": "failed"}
-            post_id, post_html = existing["id"], existing["post_html"]
-
-        db.set_item_status(item_id, "written", "waiting on the editor (continuation)")
-        db.bump_counter("written")
-
-    return {"post_html": post_html, "used_ai": True, "post_id": post_id,
-            "editor_feedback": "", "rewrite_requested": False}
-
-
 # =============================================================================
 # STATION 5: the editor decides
 # =============================================================================
@@ -369,11 +349,17 @@ async def editor_node(state: dict) -> dict[str, Any]:
     dry = state.get("dry_run", False)
     rewrite_count = state.get("rewrite_count", 0)
 
+    # A story's fourth post pointing back at what the channel already said is
+    # not the writer inventing facts — but without the earlier post in front of
+    # it, that is exactly what the editor sees.
+    story = state.get("story")
+    parent_post = story.posts[-1] if story and story.posts else ""
+
     decision = await editor.execute(
         item, state["post_html"], state["post_id"],
         record=not dry,
         attempt=rewrite_count + 1,
-        parent_post=state.get("parent_post_html", ""),
+        parent_post=parent_post,
     )
 
     if decision["error"]:
@@ -424,12 +410,20 @@ async def editor_node(state: dict) -> dict[str, Any]:
 # =============================================================================
 
 async def publish_node(state: dict) -> dict[str, Any]:
-    """Send the approved post. Dry-run stops here."""
+    """Send the approved post, then book it against its story. Dry-run stops here."""
     if state.get("dry_run"):
         return {"outcome": "approved"}
 
     item = state["item"]
-    reply_to = state.get("reply_to_message_id")
-    sent = await publisher.execute(item, state["post_html"], state["post_id"],
-                                   reply_to_message_id=reply_to)
+    sent = await publisher.execute(item, state["post_html"], state["post_id"])
+
+    if sent and state.get("story_id"):
+        # Only after the send. Booking marks every other item of the story as
+        # covered, and doing that for a message that never arrived would bury
+        # their content with nothing published in its place.
+        db.record_story_post(
+            state["story_id"], item["id"],
+            persona_loader.visible_text(state["post_html"]),
+        )
+
     return {"outcome": "published" if sent else "retry"}

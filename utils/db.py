@@ -71,11 +71,22 @@ _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     # thought a trader would care.
     "items": [
         ("market", "ALTER TABLE items ADD COLUMN market TEXT DEFAULT ''"),
-        # The item this continuation is a follow-up to. Used by the brain to
-        # find the published post and send the reply with reply_to_message_id.
+        # Dead since stories took over: a follow-up is now just the next post
+        # of the same story. Kept so a fresh database matches every existing one.
         ("continuation_of", "ALTER TABLE items ADD COLUMN continuation_of INTEGER DEFAULT NULL"),
+        # Which running story this item belongs to. Not a REFERENCES column on
+        # purpose: SQLite cannot add a foreign key by ALTER without rebuilding
+        # the table, and a cascade from stories would take real items with it.
+        ("story_id", "ALTER TABLE items ADD COLUMN story_id INTEGER DEFAULT NULL"),
     ],
 }
+
+# Indexes over migrated columns. They cannot live in schema.sql, which runs
+# BEFORE the migrations and would hit a column that does not exist yet — on an
+# existing database that is a crash on startup, not a warning.
+_MIGRATION_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_items_story ON items(story_id, status)",
+]
 
 
 def _apply_migrations() -> None:
@@ -86,6 +97,9 @@ def _apply_migrations() -> None:
             if column not in existing:
                 logger.info("Migrating: adding %s.%s", table, column)
                 conn().execute(statement)
+
+    for statement in _MIGRATION_INDEXES:
+        conn().execute(statement)
     conn().commit()
 
 
@@ -608,19 +622,6 @@ def mark_post_sent(post_id: int, message_id: int, post_url: str) -> None:
     conn().commit()
 
 
-def get_published_post_for_item(item_id: int) -> sqlite3.Row | None:
-    """Fetch the published Telegram post that belongs to an item, if any.
-
-    Used by the brain's continuation path: a continuation needs the
-    telegram_message_id of the original post so Telegram can render the reply.
-    """
-    return conn().execute(
-        "SELECT id, post_html, telegram_message_id FROM posts "
-        "WHERE item_id = ? AND status = 'sent' AND telegram_message_id IS NOT NULL",
-        (item_id,),
-    ).fetchone()
-
-
 def get_recent_sent_posts(limit: int) -> list[sqlite3.Row]:
     """Return the most recently published posts, newest first.
 
@@ -633,30 +634,6 @@ def get_recent_sent_posts(limit: int) -> list[sqlite3.Row]:
         "ORDER BY sent_at DESC, id DESC LIMIT ?",
         (limit,),
     ))
-
-
-def get_recent_posts_for_continuity(limit: int) -> list[sqlite3.Row]:
-    """Recent posts with their message id and send time, newest first.
-
-    The continuity node needs both: the time is what makes a sibling recognisable,
-    and the message id is what the publisher replies to.
-    """
-    return list(conn().execute(
-        "SELECT id, post_html, sent_at, telegram_message_id FROM posts "
-        "WHERE status = 'sent' AND post_html != '' "
-        "AND telegram_message_id IS NOT NULL "
-        "ORDER BY sent_at DESC, id DESC LIMIT ?",
-        (limit,),
-    ))
-
-
-def set_item_continuation(item_id: int, parent_item_id: int) -> None:
-    """Record that an item is a continuation of an earlier item."""
-    conn().execute(
-        "UPDATE items SET continuation_of = ?, updated_at = ? WHERE id = ?",
-        (parent_item_id, now_iso(), item_id),
-    )
-    conn().commit()
 
 
 def bump_send_attempts(post_id: int) -> int:
@@ -686,6 +663,172 @@ def seconds_since_last_post() -> float:
         return 1e9
     last = datetime.strptime(row["last"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - last).total_seconds()
+
+
+# =============================================================================
+# STORIES
+# =============================================================================
+# A story is the unit of work: items join one, and it posts when it has moved.
+# Nothing about a story is held in memory between items — every field of a
+# Story object is rebuilt from these queries, which is why a restart in the
+# middle of a developing story costs nothing.
+
+def create_story(*, headline: str, summary: str, item_id: int, at: str) -> int:
+    """Open a story and put its first item in it. Returns the new story id.
+
+    Both writes share ONE transaction. Done as two commits, a crash in between
+    leaves a story with no items in it, which then shows up in the placement
+    prompt as an empty candidate for the rest of the day.
+    """
+    cursor = conn().execute(
+        "INSERT INTO stories (headline, summary, first_at, last_item_at) "
+        "VALUES (?, ?, ?, ?)",
+        (headline[:200], summary[:300], at, at),
+    )
+    story_id = int(cursor.lastrowid)
+    conn().execute(
+        "UPDATE items SET story_id = ?, updated_at = ? WHERE id = ?",
+        (story_id, at, item_id),
+    )
+    conn().commit()
+    return story_id
+
+
+def attach_item_to_story(item_id: int, story_id: int) -> None:
+    """Put an existing item into an existing story."""
+    at = now_iso()
+    conn().execute(
+        "UPDATE items SET story_id = ?, updated_at = ? WHERE id = ?",
+        (story_id, at, item_id),
+    )
+    conn().execute(
+        "UPDATE stories SET last_item_at = ? WHERE id = ?", (at, story_id),
+    )
+    conn().commit()
+
+
+def detach_item_from_story(item_id: int) -> None:
+    """Take an item back out. Only the gate's "this does not belong here" uses it."""
+    conn().execute(
+        "UPDATE items SET story_id = NULL, updated_at = ? WHERE id = ?",
+        (now_iso(), item_id),
+    )
+    conn().commit()
+
+
+def get_story(story_id: int) -> sqlite3.Row | None:
+    """One story row, or None."""
+    return conn().execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
+
+
+def load_live_stories(idle_hours: int, limit: int) -> list[sqlite3.Row]:
+    """Open stories a new item could still join, most recently active first."""
+    return list(conn().execute(
+        f"""
+        SELECT * FROM stories
+         WHERE status = 'live'
+           AND last_item_at > datetime('now', '-{int(idle_hours)} hours')
+         ORDER BY last_item_at DESC
+         LIMIT ?
+        """,
+        (limit,),
+    ))
+
+
+def get_story_items(story_id: int) -> list[sqlite3.Row]:
+    """Every item in a story, oldest first. The caller splits them on status."""
+    return list(conn().execute(
+        "SELECT * FROM items WHERE story_id = ? ORDER BY id ASC", (story_id,),
+    ))
+
+
+def get_story_posts(story_id: int) -> list[sqlite3.Row]:
+    """What the channel has already published on a story, oldest first."""
+    return list(conn().execute(
+        """
+        SELECT p.id, p.post_html, p.sent_at, p.telegram_message_id, p.item_id
+          FROM posts p JOIN items i ON i.id = p.item_id
+         WHERE i.story_id = ? AND p.status = 'sent'
+         ORDER BY p.sent_at ASC, p.id ASC
+        """,
+        (story_id,),
+    ))
+
+
+def record_story_post(story_id: int, published_item_id: int, summary: str) -> None:
+    """Book a story post that has actually gone out.
+
+    One post covers several items, so every other item still waiting on this
+    story is now covered too and must stop being a candidate for anything.
+
+    ONLY call this after the send succeeded — it marks items as covered, and
+    doing that for a message that never arrived silently buries their content.
+    Idempotent, because it only touches items still queued or held, and two
+    call sites reach it (the graph, and publish_loop's resend fast path).
+    """
+    at = now_iso()
+    conn().execute(
+        "UPDATE stories SET last_post_at = ?, summary = ? WHERE id = ?",
+        (at, summary[:300], story_id),
+    )
+    conn().execute(
+        """
+        UPDATE items
+           SET status = 'merged',
+               status_reason = ?,
+               updated_at = ?
+         WHERE story_id = ? AND id != ? AND status IN ('queued', 'held')
+        """,
+        (f"covered by the story {story_id} post written from item {published_item_id}",
+         at, story_id, published_item_id),
+    )
+    conn().commit()
+
+
+def close_stale_stories(idle_hours: int, max_hours: int) -> list[sqlite3.Row]:
+    """End stories nothing has added to, and stories that have run too long.
+
+    Returns the rows that were closed WITH how many items they still had
+    waiting, because a story closing on unposted content is the one way this
+    design can quietly drop something, and it should be visible in the log.
+    """
+    doomed = list(conn().execute(
+        f"""
+        SELECT s.id, s.headline,
+               (SELECT COUNT(*) FROM items i
+                 WHERE i.story_id = s.id AND i.status IN ('queued', 'held')) AS waiting
+          FROM stories s
+         WHERE s.status = 'live'
+           AND (s.last_item_at < datetime('now', '-{int(idle_hours)} hours')
+                OR s.first_at  < datetime('now', '-{int(max_hours)} hours'))
+        """
+    ))
+    if doomed:
+        conn().executemany(
+            "UPDATE stories SET status = 'closed' WHERE id = ?",
+            [(row["id"],) for row in doomed],
+        )
+        conn().commit()
+    return doomed
+
+
+def recent_held(limit: int) -> list[sqlite3.Row]:
+    """Items the story gate decided not to post, newest first.
+
+    The counterpart to recent_low_impact(). This is the new pile where a real
+    story can go quiet — the gate saying "the reader already has this" when it
+    was actually something else — so it has to be readable. See stats.py --held.
+    """
+    return list(conn().execute(
+        """
+        SELECT i.id, i.source_name, i.title, i.story_id, i.status_reason,
+               i.updated_at, s.headline AS story_headline
+          FROM items i LEFT JOIN stories s ON s.id = i.story_id
+         WHERE i.status = 'held'
+         ORDER BY i.id DESC LIMIT ?
+        """,
+        (limit,),
+    ))
 
 
 # =============================================================================

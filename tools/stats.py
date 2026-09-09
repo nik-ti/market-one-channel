@@ -3,6 +3,7 @@
     python main.py stats [--days 7]
     python tools/stats.py --declines   the editor's rejections, in full
     python tools/stats.py --dropped    real news the importance gate binned
+    python tools/stats.py --held       news the story gate decided not to post
 
 FOUR NUMBERS TO WATCH
   1. Rejection rate. Over about a third means the editor is more likely too
@@ -251,6 +252,39 @@ def show_declines(count: int = 10) -> None:
     print("   Loosen PROMPT in nodes/editor.py and rehearse with tools/dry_run.py.\n")
 
 
+def show_held(count: int = 25) -> None:
+    """Print the news the story gate decided not to post.
+
+    The newest place where something real can go quiet, and the one worth
+    watching first. The gate holds an item when the reader has already been told
+    about that situation and this adds nothing — which is the point of the whole
+    story layer. But it holds on the assumption that the item was filed in the
+    RIGHT story, and when placement gets that wrong, a genuinely separate piece
+    of news ends up here with a reason that reads perfectly sensible.
+
+    So read each line as a pair: does this item actually belong to that story?
+    If it does, a hold is the channel behaving. If it does not, that is a
+    placement error, and it belongs in nodes/stories.py PLACE_SYSTEM.
+    """
+    rows = db.recent_held(count)
+    if not rows:
+        print("\n   The story gate has not held anything yet.\n")
+        return
+
+    print(f"\n{'=' * 74}")
+    print(f"  THE LAST {len(rows)} ITEMS THE STORY GATE HELD")
+    print("  Does each one really belong to the story it was filed under?")
+    print(f"{'=' * 74}")
+
+    for row in rows:
+        print(f"\n   {row['updated_at']}   {row['source_name']}")
+        print(f"   {(row['title'] or '')[:100]}")
+        print(f"   filed under story {row['story_id']}: "
+              f"{(row['story_headline'] or '?')[:70]}")
+        print(f"   held because: {(row['status_reason'] or '')[:150]}")
+    print()
+
+
 def show_dropped(count: int = 25, market: str = "") -> None:
     """Print the real news the importance gate refused to publish.
 
@@ -300,6 +334,8 @@ if __name__ == "__main__":
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--declines", action="store_true",
                         help="show recent editor rejections in full")
+    parser.add_argument("--held", action="store_true",
+                        help="items the story gate decided not to post")
     parser.add_argument("--dropped", action="store_true",
                         help="show real news the importance gate did not run")
     parser.add_argument("--market", default="",
@@ -310,6 +346,8 @@ if __name__ == "__main__":
     db.init_db()
     if args.declines:
         show_declines(args.count)
+    elif args.held:
+        show_held(max(args.count, 25))
     elif args.dropped:
         show_dropped(max(args.count, 25), market=args.market)
     else:

@@ -291,8 +291,6 @@ EDITOR_DECLINE_WINDOW = _get_int("EDITOR_DECLINE_WINDOW", 20)
 # loop costs another writer + editor call, and a third draft never makes it.
 MAX_REWRITES = _get_int("MAX_REWRITES", 1)
 
-# Continuations get a lower bar than new stories: the parent was already vetted.
-CONTINUATION_MIN_IMPORTANCE = _get_int("CONTINUATION_MIN_IMPORTANCE", 3)
 
 # 4. Duplicate check 5 — the only step that can tell "ETF inflows" from "ETF
 # outflows". Tested on 20 hand-labelled pairs from this channel:
@@ -329,29 +327,6 @@ PERSONA_PATH = HERE / "brain" / "persona.md"
 PERSONA_RECENT_POSTS = _get_int("PERSONA_RECENT_POSTS", 15)
 
 
-# --- Continuity: how this post should sit next to the ones before it ---
-
-# One cheap call per post, so the same model as the sorter. The job is reading
-# comprehension over a short list, not writing, and a slow model here eats the
-# latency budget the whole channel is built around.
-CONTINUITY_MODEL = _get("CONTINUITY_MODEL", "deepseek/deepseek-v3.2")
-
-# Fails open: past this the writer works without a brief, which is how the
-# channel behaved before this node existed.
-CONTINUITY_TIMEOUT_SECONDS = _get_int("CONTINUITY_TIMEOUT_SECONDS", 25)
-
-# Posts the brief compares against. Shorter than the writer's voice window on
-# purpose — a sibling that went out two days ago is not one the reader remembers.
-CONTINUITY_RECENT_POSTS = _get_int("CONTINUITY_RECENT_POSTS", 8)
-
-# Threading a sibling as a Telegram reply fired on 66% of posts in its first
-# day — in markets everything is related to something, so a per-item "is this
-# related?" question can only ever answer yes. The brief itself still earns its
-# keep (it is what stops the writer re-explaining a bond yield eight times);
-# only the reply is off. Story clustering replaces this properly.
-SIBLING_REPLIES = _get_bool("SIBLING_REPLIES", False)
-
-
 # =============================================================================
 # STORIES
 # =============================================================================
@@ -362,17 +337,25 @@ SIBLING_REPLIES = _get_bool("SIBLING_REPLIES", False)
 STORY_MODEL = _get("STORY_MODEL", "deepseek/deepseek-v3.2")
 STORY_TIMEOUT_SECONDS = _get_int("STORY_TIMEOUT_SECONDS", 30)
 
-# The free fast path: at or above this cosine an item joins a story with no
-# question asked. There is no matching lower threshold, because there cannot be
-# one — measured on the 1 September wire, items inside ONE story scored
-# 0.43-0.72 against each other while unrelated ones reached 0.79. The ranges
-# overlap, so everything below this goes to a model instead of a number.
-STORY_JOIN_CERTAIN = _get_float("STORY_JOIN_CERTAIN", 0.88)
+# How many open stories the placement step is shown. It answers with an index
+# into this list, so a long one makes the prompt long and the numbering easy to
+# get wrong; the oldest candidates are the least likely answers anyway.
+STORY_MAX_OPEN = _get_int("STORY_MAX_OPEN", 12)
+
+# How many unposted items the gate and the writer are shown from one story.
+# Keeps both prompts bounded no matter how much piles up; anything outside the
+# slice is still marked covered when the post goes out.
+STORY_MAX_PENDING = _get_int("STORY_MAX_PENDING", 12)
 
 # A story nobody has added to in this long is over. A new item that looks like
 # it cannot reopen it — it starts a fresh story, which is what a reader coming
 # back the next day would expect.
 STORY_IDLE_HOURS = _get_int("STORY_IDLE_HOURS", 12)
+
+# A hard end, whatever the story is doing. Without it a broad situation stays
+# live indefinitely by absorbing one item every eleven hours, and slowly starts
+# swallowing everything else.
+STORY_MAX_HOURS = _get_int("STORY_MAX_HOURS", 48)
 
 # A floor against two wires seconds apart becoming two posts — nothing more.
 # It was 25 minutes, and a timer silenced Iran announcing its retaliation on

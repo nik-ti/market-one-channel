@@ -42,17 +42,20 @@ Feeds are checked every 10 minutes; tweets arrive continuously.
     │            │        market impact 1-5 · "none" is capped at 3      │
     │            │        drops anything below MIN_IMPORTANCE (4)         │
     │            ▼                                                       │
-    │   3.  continuity.py AI · how does this sit next to what we just    │
-    │            │        posted? sibling or standalone, and what has     │
-    │            │        already been explained to the reader            │
+    │   3.  stories.py    AI · which running story is this?              │
+    │            │        join one, or open a new one                     │
     │            ▼                                                       │
-    │   4.  writer.py     AI rewrite into the house voice                │
-    │            │        deepseek-v3.2                                   │
+    │   4.  stories.py    AI · has that story MOVED?                     │
+    │            │        post now / hold / this is not that story        │
+    │            │        a hold ends here — the item waits as fuel       │
     │            ▼                                                       │
-    │   5.  editor.py     AI · approve or reject, naming a rule          │
+    │   5.  writer.py     AI rewrite of the WHOLE story into the voice   │
+    │            │        deepseek-v3.2 · several wires become one post   │
+    │            ▼                                                       │
+    │   6.  editor.py     AI · approve or reject, naming a rule          │
     │            │        minimax-m2.7 · different lab from the writer   │
     │            ▼                                                       │
-    │   6.  publisher.py  add the source link, then send                 │
+    │   7.  publisher.py  add the source link, then send                 │
     │            │        max 2 per round, 12 per hour, 60 per day       │
     │            ▼                                                       │
     │      YOUR TELEGRAM CHANNEL                                         │
@@ -287,23 +290,34 @@ weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
 - **Fails soft:** if it breaks, we fall back to the source's own topic and carry
   on. It is an optimiser, not a safety gate.
 
-### `continuity.py` (AI)
-- **What:** the only station that sees the incoming story and the channel's own
-  published posts together. It answers two questions the dedup check does not:
-  is this the *neighbour* of something the reader just read, and what have we
-  already explained to them?
-- **Why it exists:** on 31 Aug 2026 the channel posted four government bond
-  yields in one day — France 30y, US 10y, US 5y, France 10y — each rebuilt from
-  the same skeleton with a different number, each re-explaining what a yield is.
-  Every single post was correct. The sequence read like a machine.
-- **Sibling ≠ duplicate.** The dedup check had already ruled on the US 5-year
-  and got it right: "differs only by a number", not the same event. Different
-  event, same conversation, is a question nobody was asking.
-- **A sibling is published as a Telegram reply** to the post it belongs with,
-  and the editor is shown that parent post — otherwise a reference back to it
-  reads as the writer inventing a fact.
-- **Fails open.** No brief means the writer behaves exactly as it did before
-  this node existed: a duller post, not a wrong one.
+### `stories.py` (AI) — the unit of work
+- **What:** items do not become posts. They join a **story**, and a story posts
+  when it has moved. Two questions, kept apart: `place()` asks which running
+  story an item belongs to, `should_post()` asks whether that story has moved
+  enough to be worth the reader's attention.
+- **Why it exists:** on 1 September 2026 the channel posted fifteen times in four
+  and a half hours about one war, and seven times about bond yields in a day.
+  Every post was correct. The sequence read like a machine, because the thing
+  that makes a channel read like a person — deciding NOT to post — had nowhere
+  to happen. Replayed with stories, that day is 38 posts instead of 21, the war
+  is 6 posts instead of 15, and the yields are 1 instead of 7.
+- **Placement asks a model, not a number.** Measured on that day's wire, items
+  inside ONE story scored 0.43-0.72 cosine against each other while unrelated
+  ones reached 0.79. The ranges overlap, so no threshold can separate them. One
+  call per item, shown every open story at once.
+- **A story remembers itself as a sentence**, rewritten from each post as it goes
+  out. That is what lets a story that opened with "two tankers hit in Hormuz"
+  be recognised later as the war it became — and you can read it in the table.
+- **A hold is never a drop.** `should_post()` always posts a story's FIRST post,
+  so every story speaks at least once; a hold after that means "the reader
+  already has this". Held items stay attached and feed the story's next post.
+  Read the pile with `python3 tools/stats.py --held`.
+- **The gate can undo a bad placement** by answering `not_this_story`. Without
+  it, one misfiling silenced real news — that is how "Fed rate hike odds above
+  66%" and "Russia cuts oil output" were lost in an early replay.
+- **Fails open** both ways: placement into a new story, the gate into posting.
+  A run of ten failures alerts, because a dead model here reverts the channel to
+  one post per item and nothing looks broken.
 
 ### `writer.py` (AI)
 - **What:** rewrites every story — articles and tweets alike — into one house
@@ -492,8 +506,19 @@ logs/              the log
 
 ## Where this is going
 
-Threading developing stories onto the message that broke them is built — see
-`continuation` in `brain/graph.py`. Still open:
+Stories are built and live — see `nodes/stories.py`. Still open:
+
+- **A way to tell whether a change helped.** Every tuning pass so far has been
+  judged by eye, and the numbers wandered without anyone able to say which run
+  was better. The instrument is a pairwise judge: same day, two pipelines, "which
+  of these reads more like a person runs this channel".
+- **Set the volume deliberately.** Roughly 20 posts a day now; the norm for a
+  news channel is 3-5. That one number is what the story gate should be tuned
+  against, and it has never been decided.
+- **Thread a story's posts under its first one.** `publisher.execute()` already
+  takes `reply_to_message_id`. A per-item guess at what was related fired on 66%
+  of posts and was switched off; a story is a real thread, so this is safe now
+  in a way it was not before.
 
 - **Show the sorter's market judgement in the post**, so a reader can see why it
   was carried.

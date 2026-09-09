@@ -360,15 +360,15 @@ def is_brief(item) -> bool:
 
 async def execute(item, has_image: bool = False, editor_feedback: str = "",
                   recent_posts: list[str] | None = None, persona: str = "",
-                  continuity_text: str = "") -> str:
+                  brief: str = "") -> str:
     """Write the post for one item.
 
     Returns the Telegram HTML, or an EMPTY STRING meaning "leave this item and
     try again next cycle" — never "publish nothing".
 
     `editor_feedback` carries the rejection reason from the rewrite loop.
-    `recent_posts` are the channel's last posts. `continuity_text` is the
-    editor's brief on how this one sits beside them. `persona` is
+    `recent_posts` are the channel's last posts. `brief` is the editor's
+    instruction for this post: what is new and what the reader already has. `persona` is
     brain/persona.md.
     """
 
@@ -432,8 +432,8 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
             f"{examples}"
         )
 
-    if continuity_text:
-        system_prompt += f"\n\n---\n{continuity_text}"
+    if brief:
+        system_prompt += f"\n\n---\n{brief}"
 
     try:
         raw = await openrouter.chat_text(
@@ -466,160 +466,6 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
         # Not fatal — telegram_html neutralises them — but logged so a
         # persistently misbehaving model shows up.
         log.info("Writer used tags Telegram doesn't allow %s on item %s — "
-                 "they will be stripped before sending", forbidden, item["id"])
-
-    return post
-
-
-# --- Continuation writer ---
-# Sent as a Telegram reply to the original post, so it must not repeat the
-# parent's facts.
-
-CONTINUATION_PROMPT = """You write short continuation updates for a Telegram news channel.
-
-This item is a follow-up to a story the channel has already posted. The
-original post is shown below for context ONLY. Your job is to write the NEW
-information in the source — what has changed or what has been confirmed.
-
-## Today is {today}
-Your own knowledge of the world is older than that and may be out of date. The
-source is authoritative; your memory is not.
-
-NEVER add or change a title, role or honorific. If the source gives a bare name,
-use the bare name — no "the former president", no "the CEO of", no explaining
-who somebody is. You do not need to know whether a title is currently right,
-only whether it is in the source.
-
-## Core Rule
-Write ONLY what is new. Do not repeat facts that already appeared in the
-original post. The reader has seen the original; this update adds to it.
-
-If the new item mostly restates the old one with no material change, say so by
-returning an empty post: just the words "no new facts" and nothing else.
-
-## Style and Format
-* Start with the new fact directly. Do not use a generic opener like "Update:" or
-  "In a follow-up:" unless the source itself uses that framing.
-* Keep the same plain, factual tone as the main channel posts.
-* First line: the headline wrapped in <b>...</b>.
-* Then a blank line, then the new development.
-* Length: {length_rule}
-* {emoji_rule}
-* No hashtags. No source link — the system adds the link.
-
-## Factual Accuracy
-Same rules as the main channel: never strengthen a hedge, never add a number
-or name not in the source, keep attributions, "could" stays "could",
-"proposed" stays "proposed".
-
-## Do not add
-No hashtags. No source link. No channel name. No sign-off.
-
-## Example of a good continuation
-Original post:
-<b>Ukrainian drones halt loading at Novorossiysk oil terminal</b>
-
-Exports from Russia's largest Black Sea crude terminal stopped on Tuesday after
-an overnight drone attack. The port handles about 2% of global seaborne crude.
-
-Source update:
-<b>Operator confirms Novorossiysk loading remains suspended</b>
-
-The port operator said crude loading has not resumed and gave no restart date.
-The terminal handled roughly 2% of global seaborne crude before the halt.
-
----
-Now write the continuation for the source update below."""
-
-
-async def execute_continuation(item, *, parent_post_html: str,
-                               has_image: bool = False,
-                               editor_feedback: str = "",
-                               recent_posts: list[str] | None = None,
-                               persona: str = "") -> str:
-    """Write a continuation adding new facts to an already-published post.
-
-    Empty string means "leave this item for retry", as in execute().
-    """
-    title = item["title"] or ""
-    body = (item["body"] or "")[: config.MAX_BODY_CHARS]
-    origin = "a post on X" if item["origin"] == "x" else "a news article"
-
-    user_message = (
-        f"Source: {item['source_name']} ({origin})\n"
-        f"Topic: {item['topic'] or item['topic_hint']}\n\n"
-        f"Headline: {title}\n\n"
-        f"Original post (already published on the channel):\n"
-        f"{parent_post_html}\n\n"
-        f"Source update:\n{body}"
-    )
-
-    if editor_feedback:
-        user_message += (
-            f"\n\n---\nREWRITE REQUEST\n"
-            f"The channel editor rejected your previous draft of this continuation "
-            f"for this specific reason: {editor_feedback}\n"
-            f"Write the continuation again, fixing exactly that problem. Do not "
-            f"repeat facts from the original post."
-        )
-
-    if has_thin_source(item):
-        length_rule = LENGTH_RULE_BRIEF
-    elif has_image:
-        length_rule = LENGTH_RULE_IMAGE
-    else:
-        length_rule = LENGTH_RULE_TEXT
-
-    system_prompt = CONTINUATION_PROMPT.format(length_rule=length_rule,
-                                               emoji_rule=EMOJI_RULE,
-                                               today=_today())
-
-    if persona.strip():
-        system_prompt = f"{persona}\n\n---\n\n{system_prompt}"
-
-    if recent_posts:
-        examples = "\n\n".join(
-            f"Example {i + 1}:\n{p}" for i, p in enumerate(recent_posts[:10])
-        )
-        system_prompt += (
-            f"\n\n---\nRECENT CHANNEL POSTS (voice examples only — DO NOT repeat their facts):\n\n"
-            f"{examples}"
-        )
-
-    try:
-        raw = await openrouter.chat_text(
-            model=MODEL, system=system_prompt, user=user_message,
-            temperature=TEMPERATURE, max_tokens=MAX_TOKENS,
-        )
-    except Exception as error:  # noqa: BLE001
-        log.warning("Continuation writer failed for item %s: %s", item["id"], error)
-        return ""
-
-    post = _clean(raw)
-
-    if not post:
-        log.warning("Continuation writer returned nothing for item %s", item["id"])
-        return ""
-
-    # The "no new facts" sentinel lets the model bail out gracefully.
-    if post.lower().strip() == "no new facts":
-        log.info("Continuation writer decided item %s has no new facts", item["id"])
-        return ""
-
-    before = post
-    post, mark = enforce_mark(post)
-    if post != before:
-        log.info("Tidied the marks on continuation item %s — kept %s",
-                 item["id"], mark or "none")
-
-    if _looks_incomplete(post):
-        log.warning("Continuation writer produced a post that stops mid-sentence "
-                    "for item %s — discarding it", item["id"])
-        return ""
-
-    forbidden = _has_forbidden_tags(post)
-    if forbidden:
-        log.info("Continuation writer used tags Telegram doesn't allow %s on item %s — "
                  "they will be stripped before sending", forbidden, item["id"])
 
     return post

@@ -17,6 +17,9 @@ THE TIME GATE discards candidates more than DUPLICATE_MAX_GAP_HOURS away before
 is the most dangerous thing in the pool. Every real duplicate measured here
 arrived within 10.1 hours; the worst false merges were 24 hours apart.
 
+A CONTINUATION IS NOT A DUPLICATE and is not dropped here. Where it belongs is
+the story layer's question, and it has more to go on than this check does.
+
 IT FAILS OPEN — a duplicate is a small embarrassment, a silent channel is worse.
 The editor does the opposite, deliberately. But a dedup_hit row is only written
 on a MATCH, so "found nothing" and "the API was down" once left identical
@@ -154,9 +157,13 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
 async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | None, float]:
     """Return (verdict, matched_item_id, score) for this item against recent ones.
 
-    verdict is duplicate | continuation | different | error. This step does not
-    decide duplicates on its own — the judge reads the pair — but it does
-    distinguish continuations, which the old pipeline had no language for.
+    verdict is duplicate | different. This step does not decide duplicates on
+    its own — the judge reads the pair.
+
+    The judge still answers three ways, and "continues an earlier item" is still
+    written to dedup_hits, because it is the honest record of what it thought.
+    But it no longer routes anything: the story layer answers that question, and
+    answers it better, because it sees every open story rather than one pair.
     """
     from utils import embeddings
     from nodes import judge
@@ -267,9 +274,10 @@ async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | Non
                 detail=f"CONTINUATION ({reason[:120]}): "
                        f"{title[:110]} ~{score:.3f}~ {matched_title[:110]}",
             )
-            log.info("Continuation (%.3f): %r → %r — %s",
+            log.info("Continuation (%.3f): %r → %r — %s. Kept; the story layer "
+                     "decides where it belongs",
                      score, title[:60], matched_title[:60], reason[:100])
-            return "continuation", matched_id, score
+            continue
 
         # verdict == "same_event"
         db.log_dedup_hit(
@@ -286,10 +294,9 @@ async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | Non
 
 
 async def classify(item, *, with_meaning: bool = True) -> tuple[str, int | None, float]:
-    """Run checks 3 and 4 and return the full verdict, without setting statuses.
+    """Run checks 3 and 4 and return the verdict, without setting statuses.
 
-    This is what the brain's relationship_check node calls. It needs the raw
-    verdict (duplicate / continuation / different) so it can route correctly.
+    What the brain's dedup_check node calls. Two answers: duplicate, or not.
     """
     if check_wording(item["id"], item["title"] or "", item.get("norm_title") or ""):
         # Always dropped, and carry no matched id. Synthetic score of 100.

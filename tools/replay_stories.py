@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -32,12 +31,6 @@ from utils import db
 BOLD, DIM, RED, GREEN, YELLOW, OFF = (
     "\033[1m", "\033[2m", "\033[31m", "\033[32m", "\033[33m", "\033[0m"
 )
-
-
-def plain(html: str) -> str:
-    """The post as a reader sees it, minus the markup and the source credit."""
-    text = re.sub(r"\n?(?:🔗|—) .*$", "", html or "", flags=re.MULTILINE)
-    return re.sub(r"<[^>]+>", "", text).strip()
 
 
 def load(since: str, until: str) -> list[dict]:
@@ -63,25 +56,23 @@ async def replay(items: list[dict], write: bool) -> tuple[list[stories.Story], l
 
     for item in items:
         now = stories.parse_time(item["sent_at"])
-        vector = await stories.vector_for(item)
-        if vector is None:
-            continue
 
-        home, score = stories.obvious_home(vector, live, now)
-        if home is None:
-            home, _why = await stories.place(item, live, now)
+        # Same cap the live path applies before place() answers with an index
+        # into this list. Without it the replay shows the model a longer list
+        # than production ever would, and stops predicting production.
+        open_now = [s for s in live if s.is_live(now)][:config.STORY_MAX_OPEN]
+        home, _why = await stories.place(item, open_now, now)
 
         if home is None:
-            home = stories.Story(
-                id=next_id, headline=(item["title"] or "")[:90], centroid=vector,
-            )
+            home = stories.Story(id=next_id, headline=(item["title"] or "")[:90],
+                                 summary=(item["title"] or "")[:200])
             next_id += 1
             live.append(home)
             joined = False
         else:
             joined = True
 
-        home.absorb(item, vector, now)
+        home.absorb(item, now)
         verdict = await stories.should_post(home, now)
 
         # The gate is the second opinion on the placement. When it says the item
@@ -89,18 +80,17 @@ async def replay(items: list[dict], write: bool) -> tuple[list[stories.Story], l
         # wrong story — otherwise one bad placement quietly kills real news.
         if verdict["verdict"] == "not_this_story":
             home.eject(item)
-            home = stories.Story(
-                id=next_id, headline=(item["title"] or "")[:90], centroid=vector,
-            )
+            home = stories.Story(id=next_id, headline=(item["title"] or "")[:90],
+                                 summary=(item["title"] or "")[:200])
             next_id += 1
             live.append(home)
             joined = False
-            home.absorb(item, vector, now)
+            home.absorb(item, now)
             verdict = await stories.should_post(home, now)
 
         entry = {
             "at": now, "item": item, "story": home, "joined": joined,
-            "score": score, "posted": verdict["verdict"] == "post",
+            "posted": verdict["verdict"] == "post",
             "reason": verdict["reason"], "angle": verdict["angle"],
             "merged": len(home.pending), "text": "",
         }
@@ -111,15 +101,16 @@ async def replay(items: list[dict], write: bool) -> tuple[list[stories.Story], l
                 text = await writer.execute(
                     source,
                     persona=persona,
-                    continuity_text=stories.brief_for_writer(home, verdict["angle"]),
+                    brief=stories.brief_for_writer(home, verdict["angle"]),
                 )
-                entry["text"] = plain(text) if text else "(the writer returned nothing)"
+                entry["text"] = persona_loader.visible_text(text) if text else "(the writer returned nothing)"
             else:
                 # Stand-in: what the channel actually told the reader for the
                 # item that triggered this post.
-                entry["text"] = plain(item["post_html"])
+                entry["text"] = persona_loader.visible_text(item["post_html"])
 
             home.posts.append(entry["text"])
+            home.summary = entry["text"][:300]
             home.last_post_at = now
             home.posted_items.extend(home.pending)
             home.pending = []

@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS items (
         --                 quiet or too trivial, and mixing it in with sport and
         --                 opinion columns would make it unreadable.
         -- written         a post exists, waiting on the editor or on room to send
+        -- held            it joined a running story, but the story had not moved.
+        --                 Its content still reaches that story's NEXT post, so
+        --                 this is "not yet", never "thrown away".
+        -- merged          covered by a story post whose posts row belongs to a
+        --                 different item of the same story
         -- published       it went out
         -- expired         it sat in the queue too long and went stale
         -- failed          something broke repeatedly; see status_reason
@@ -146,6 +151,34 @@ CREATE TABLE IF NOT EXISTS posts (
 
 CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_posts_sent   ON posts(sent_at);   -- for the hourly cap
+
+
+-- ── stories ──────────────────────────────────────────────────────────────────
+-- One running situation the channel is following, and the unit of work: items
+-- join a story, and a story posts when it has moved.
+--
+-- WHAT IS IN A STORY IS NOT STORED HERE. It is the items whose story_id points
+-- at this row, and the posts belonging to those items. That is deliberate:
+-- there is nothing to keep in sync, and a restart in the middle of a developing
+-- story loses nothing, because nothing about it lived in memory.
+--
+-- headline is the first item's title and never changes; summary is what the
+-- story IS now, rewritten from each post as it goes out. The placement step
+-- reads summary, which is why "two tankers hit in Hormuz" can become "US and
+-- Iran are exchanging strikes" without anyone editing a row by hand.
+CREATE TABLE IF NOT EXISTS stories (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    headline     TEXT    NOT NULL DEFAULT '',
+    summary      TEXT    NOT NULL DEFAULT '',
+    status       TEXT    NOT NULL DEFAULT 'live',   -- live | closed
+    first_at     TEXT    NOT NULL,
+    last_item_at TEXT    NOT NULL,
+    last_post_at TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- How the placement step finds candidates: open stories, most recent first.
+CREATE INDEX IF NOT EXISTS idx_stories_live ON stories(status, last_item_at DESC);
 
 
 -- ── editor_decisions ─────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ decision. Publishes nothing, stores nothing, records no verdicts.
     python tools/test_brain.py [--limit 25] [--topic crypto]
 
 dry_run.py exercises the old hand-written pipeline; this exercises the graph.
-It is the place to rehearse graph-only features — continuation threading, the
+It is the place to rehearse graph-only features — story placement, the
 rewrite loop, persona memory — that dry_run.py knows nothing about.
 
 About $0.002 an item.
@@ -61,6 +61,13 @@ async def _process(item, index: int, total: int, args) -> str:
             print(f"      reason: {verdict.get('reason', '')}")
         return "irrelevant"
 
+    if outcome == "held":
+        if not args.declined:
+            print(f"\n{header}")
+            print(f"   🤐 HELD — story {state.get('story_id')} has not moved — {title}")
+            print(f"      reason: {state.get('gate_reason', '')}")
+        return "held"
+
     if outcome == "low_impact":
         if not args.declined:
             print(f"\n{header}")
@@ -97,6 +104,15 @@ async def _process(item, index: int, total: int, args) -> str:
         return "editor_error"
 
     if outcome == "approved":
+        story = state.get("story")
+        if story is not None and not args.declined:
+            folded = len(story.pending) or 1
+            print(f"\n   📁 story {story.id or 'new'} · {folded} item(s) folded · "
+                  f"post {len(story.posts) + 1} of this story")
+            if state.get("story_angle"):
+                print(f"      angle: {state['story_angle'][:150]}")
+
+
         print(f"   ✅ EDITOR APPROVED ({decision.get('confidence', 0):.2f}) — "
               f"{decision.get('reason', '')}")
         return "approved"
@@ -118,11 +134,16 @@ async def main() -> None:
     parser.add_argument("--recent", type=int, metavar="HOURS",
                         help="rehearse on anything fetched in the last N hours, "
                              "regardless of status (default: only queued items). "
-                             "Useful for testing continuations, which need "
-                             "already-published posts to exist.")
+                             "Useful for testing story placement, which needs "
+                             "earlier items and posts to exist.")
     args = parser.parse_args()
 
     log_setup.setup(level="WARNING", to_file=False)   # keep the output readable
+
+    # A rehearsal reads real stories but writes none, so two rehearsed items
+    # about the same new situation each show as "would open a story". That is
+    # the tool being honest, not a bug — replay_stories.py is what shows how
+    # items behave ACROSS each other.
     db.init_db()
 
     problems = config.check(require_openrouter=True)
@@ -171,6 +192,7 @@ async def main() -> None:
         "duplicate": "🔁 already covered",
         "irrelevant": "⛔ not news, or not our subject",
         "low_impact": "📉 real news, nothing to reprice",
+        "held": "🤐 its story had not moved",
         "write_failed": "❌ the writer failed",
         "editor_error": "⚠️  the editor was unreachable",
         "sorter_error": "⚠️  the sorter was unreachable",
