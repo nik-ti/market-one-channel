@@ -78,6 +78,10 @@ _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         # purpose: SQLite cannot add a foreign key by ALTER without rebuilding
         # the table, and a cascade from stories would take real items with it.
         ("story_id", "ALTER TABLE items ADD COLUMN story_id INTEGER DEFAULT NULL"),
+        # The MP4 behind a video or GIF on X. image_url keeps the thumbnail, so
+        # a clip that cannot be sent still has a picture to fall back to.
+        ("video_url", "ALTER TABLE items ADD COLUMN video_url TEXT DEFAULT ''"),
+        ("video_kind", "ALTER TABLE items ADD COLUMN video_kind TEXT DEFAULT ''"),
     ],
 }
 
@@ -266,6 +270,8 @@ def insert_item(
     title: str = "",
     body: str = "",
     image_url: str = "",
+    video_url: str = "",
+    video_kind: str = "",
     published_at: str | None = None,
     norm_title: str = "",
     title_hash: str = "",
@@ -283,13 +289,15 @@ def insert_item(
             """
             INSERT INTO items (
                 origin, source_name, external_id, url, title, body, image_url,
+                video_url, video_kind,
                 published_at, norm_title, title_hash, topic_hint,
                 status, status_reason, fetched_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 origin, source_name, external_id, url, title,
-                body[: config.MAX_BODY_CHARS], image_url, published_at,
+                body[: config.MAX_BODY_CHARS], image_url, video_url, video_kind,
+                published_at,
                 norm_title, title_hash, topic_hint,
                 status, status_reason, now_iso(), now_iso(),
             ),

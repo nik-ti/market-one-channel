@@ -89,6 +89,8 @@ def _store_tweet(tweet: fetch_tweets.Tweet) -> bool:
         title=title,
         body=tweet.text,
         image_url=tweet.image_url,
+        video_url=tweet.video,
+        video_kind=tweet.video_kind,
         published_at=None,   # X's own timestamp format differs; fetched_at is enough
         norm_title=norm_title,
         title_hash=fingerprint,

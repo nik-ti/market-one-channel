@@ -269,7 +269,7 @@ async def writer_node(state: dict) -> dict[str, Any]:
     item = state["item"]
     item_id = item["id"]
     dry = state.get("dry_run", False)
-    has_image = bool(item.get("image_url"))
+    has_image = bool(item.get("image_url") or item.get("video_url"))
     feedback = state.get("editor_feedback") or ""
     existing_post_id = state.get("post_id")
 

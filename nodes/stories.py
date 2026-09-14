@@ -411,6 +411,8 @@ def as_source(story: Story) -> dict:
         "title": newest["title"],
         "body": "\n\n".join(parts)[:4000],
         "image_url": newest.get("image_url") or "",
+        "video_url": newest.get("video_url") or "",
+        "video_kind": newest.get("video_kind") or "",
         "topic": newest.get("topic") or "",
         "topic_hint": newest.get("topic_hint") or "",
         "importance": max((i.get("importance") or 0) for i in pending),

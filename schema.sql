@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS items (
     url           TEXT    DEFAULT '',            -- the link we put in the post
     title         TEXT    DEFAULT '',
     body          TEXT    DEFAULT '',            -- article summary or full tweet text
-    image_url     TEXT    DEFAULT '',            -- only ever set for X items
+    image_url     TEXT    DEFAULT '',            -- only ever set for X items; a
+                                                 -- clip's thumbnail, if it had one
     published_at  TEXT,                          -- when the source published it (UTC)
     fetched_at    TEXT    NOT NULL DEFAULT (datetime('now')),
 

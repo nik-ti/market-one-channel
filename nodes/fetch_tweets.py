@@ -56,6 +56,8 @@ class Tweet:
     created_at: str      # as X gave it; may be empty
     url: str
     media: tuple[str, ...] = field(default_factory=tuple)   # image addresses
+    video: str = ""          # the MP4 behind a clip; media still holds its thumbnail
+    video_kind: str = ""     # "video" | "gif" | ""
 
     @property
     def image_url(self) -> str:
@@ -84,6 +86,8 @@ def _parse_entry(fields: dict) -> Tweet | None:
         created_at=data.get("created_at", ""),
         url=data.get("url", ""),
         media=tuple(data.get("media", []) or ()),
+        video=data.get("video", "") or "",
+        video_kind=data.get("video_kind", "") or "",
     )
 
 

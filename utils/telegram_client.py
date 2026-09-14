@@ -135,6 +135,51 @@ async def send_text(html: str, reply_to_message_id: int | None = None) -> int:
         return message.message_id
 
 
+async def send_clip(video_url: str, kind: str, caption_html: str,
+                    reply_to_message_id: int | None = None) -> int:
+    """Send a video or a GIF with the post as its caption. Returns the message number.
+
+    A GIF goes through send_animation, which loops it silently the way X shows
+    it; a video through send_video. Telegram fetches the file from the address
+    itself, and refuses anything over 20 MB that way — that is a BadRequest, and
+    the caller falls back to the thumbnail, then to text.
+    """
+    bot = await _get_bot()
+    safe = telegram_html.safe_truncate(telegram_html.sanitize(caption_html),
+                                       telegram_html.CAPTION_LIMIT)
+    reply_kwargs = {}
+    if reply_to_message_id is not None:
+        reply_kwargs["reply_to_message_id"] = reply_to_message_id
+
+    async def _send(caption: str) -> int:
+        common = dict(chat_id=config.CHANNEL_ID, caption=caption,
+                      parse_mode="HTML", **reply_kwargs)
+        if kind == "gif":
+            message = await bot.send_animation(animation=video_url, **common)
+        else:
+            message = await bot.send_video(video=video_url, supports_streaming=True,
+                                           **common)
+        return message.message_id
+
+    try:
+        return await _send(safe)
+
+    except RetryAfter as error:
+        wait = float(error.retry_after) + 1
+        log.warning("Telegram asked us to wait %.0f seconds — pausing", wait)
+        await asyncio.sleep(wait)
+        return await _send(safe)
+
+    except BadRequest as error:
+        if not _is_formatting_problem(error):
+            raise    # the file itself was refused; the caller falls back
+        log.warning("Telegram rejected the caption formatting (%s) — sending it plain", error)
+        plain = telegram_html.safe_truncate(
+            telegram_html.strip_all_tags(caption_html), telegram_html.CAPTION_LIMIT
+        )
+        return await _send(plain)
+
+
 async def send_photo(image_url: str, caption_html: str,
                      reply_to_message_id: int | None = None) -> int:
     """Send a photo with the post as its caption. Returns the message number.

@@ -6,10 +6,11 @@ the writer (config.POST_MARKS).
 The pacing limits are set for readers, not for Telegram — a channel that posts
 eleven times in five minutes gets muted.
 
-A post with an image goes out as ONE message, the photo captioned, never a
-photo followed by a wall of text. Telegram caps captions at 1024 characters
+A post with media goes out as ONE message, the clip or photo captioned, never
+a picture followed by a wall of text. Telegram caps captions at 1024 characters
 against 4096, so if shortening would leave the text trailing off we drop the
-picture and send the full text instead.
+media and send the full text instead. A video that Telegram will not fetch
+falls back to its own thumbnail before it falls back to text.
 """
 
 from __future__ import annotations
@@ -96,28 +97,47 @@ async def execute(item, post_html: str, post_id: int,
     topic = item["topic"] or item["topic_hint"] or "crypto"
     message = compose(post_html, item["url"] or "", item["source_name"])
     image_url = item["image_url"] or ""
+    video_url = item["video_url"] or ""
+    video_kind = item["video_kind"] or ""
 
     try:
         message_id = None
 
-        if image_url:
-            if telegram_html.would_cut_mid_sentence(message, telegram_html.CAPTION_LIMIT):
-                # A complete post without a picture beats a truncated one with.
-                log.info("Post %s is too long to caption a photo — sending as text instead",
-                         post_id)
-                db.bump_counter("image_dropped_too_long")
-            else:
-                try:
-                    message_id = await telegram_client.send_photo(
-                        image_url, message,
-                        reply_to_message_id=reply_to_message_id,
-                    )
-                except Exception as error:  # noqa: BLE001
-                    # Telegram fetches images itself and sometimes cannot.
-                    # Never lose a post over a picture.
-                    log.warning("Could not send the image for post %s (%s) — "
-                                "sending as text instead", post_id, error)
-                    db.bump_counter("image_dropped_failed")
+        # Clip first, then its thumbnail, then plain text. Each step down is a
+        # smaller loss than losing the post, which is why none of them raises.
+        if (video_url or image_url) and telegram_html.would_cut_mid_sentence(
+                message, telegram_html.CAPTION_LIMIT):
+            # A complete post without a picture beats a truncated one with.
+            log.info("Post %s is too long to caption media — sending as text instead",
+                     post_id)
+            db.bump_counter("image_dropped_too_long")
+            video_url = image_url = ""
+
+        if video_url:
+            try:
+                message_id = await telegram_client.send_clip(
+                    video_url, video_kind, message,
+                    reply_to_message_id=reply_to_message_id,
+                )
+            except Exception as error:  # noqa: BLE001
+                # Usually the file is over Telegram's 20 MB by-URL limit. The
+                # thumbnail is still a picture of the same thing.
+                log.warning("Could not send the %s for post %s (%s) — trying the "
+                            "thumbnail", video_kind or "clip", post_id, error)
+                db.bump_counter("video_dropped_failed")
+
+        if message_id is None and image_url:
+            try:
+                message_id = await telegram_client.send_photo(
+                    image_url, message,
+                    reply_to_message_id=reply_to_message_id,
+                )
+            except Exception as error:  # noqa: BLE001
+                # Telegram fetches images itself and sometimes cannot.
+                # Never lose a post over a picture.
+                log.warning("Could not send the image for post %s (%s) — "
+                            "sending as text instead", post_id, error)
+                db.bump_counter("image_dropped_failed")
 
         if message_id is None:
             message_id = await telegram_client.send_text(
