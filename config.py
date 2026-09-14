@@ -78,7 +78,6 @@ SOURCES = [
 
     # ── Geopolitics ──
     {"name": "guardian_world", "topic": "geopolitics", "url": "https://www.theguardian.com/world/rss"},
-    {"name": "aljazeera",      "topic": "geopolitics", "url": "https://www.aljazeera.com/xml/rss/all.xml"},
 
 ]
 

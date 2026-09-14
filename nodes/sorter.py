@@ -97,10 +97,19 @@ Name the ONE market a professional would have to look at again because of this i
 * "commodities"   — metals, grain, fertiliser, shipping and freight
 * "equities"      — a listed company or a whole sector, big enough that the index notices
 * "risk_sentiment" — the OVERALL level of geopolitical or systemic risk genuinely stepped up or
-                     down. Reserved for: a new state entering a war, a major power becoming
-                     directly involved, a ceasefire or peace deal actually signed, sanctions on a
-                     major economy, a systemically important bank or stablecoin failing, a nuclear
-                     or superpower threshold crossed.
+                     down, TODAY, in a way a trader would hedge before the close. Reserved for:
+                     a new state entering a war, a major power becoming directly involved, a
+                     ceasefire or peace deal actually signed, sanctions on a major economy, a
+                     systemically important bank or stablecoin failing, a nuclear weapon used or
+                     an ultimatum with a deadline issued between nuclear powers.
+
+                     NOT risk_sentiment, however serious it sounds: a pact, treaty, alliance or
+                     doctrine signed or joined; a country raising defence spending; a military
+                     exercise; a summit, a visit, a statement of support; a weapons delivery
+                     announced; a threat without a deadline. These are the world arranging
+                     itself, not the world changing. "Finland joins a French-led nuclear
+                     deterrence pact" is diplomacy: nothing is fought differently tomorrow, and
+                     no price moves on it. That is "none" and a 3.
 * "none"          — nothing has to be repriced.
 
 **Pick "none" freely and without regret.** If you find yourself building an argument for why some
