@@ -118,6 +118,14 @@ purpose: it is the difference between a channel worth subscribing to and a wire 
       between significant states. A top-20 exchange, bank, or stablecoin failing. A landmark
       regulatory ruling that changes what is legal. Sovereign default. Sanctions on a major economy.
 
+      HOW MUCH OF THE WORLD REPRICES decides the score for economic data and policy. US data —
+      CPI, payrolls, the Fed — reprices everything, and is a 5 or a 4. The eurozone, China and
+      Japan reprice a large region: a 4 for their headline releases. Any other single economy's
+      inflation, jobs, GDP or rate decision reprices its own currency and little else: a 3, even
+      when the number surprises. Canada's inflation is a 3. Australia's rate decision is a 3.
+      France's 10-year yield on its own is a 3 — unless it is part of a wider move already
+      being followed, in which case it is that story continuing, which is also a 3.
+
 * 4 — Something is now settled and different, AND you named a market above.
       A ban, approval, licence, or rule ACTUALLY IMPOSED by a regulator or government.
       A law passed or taking effect. A tariff or sanction imposed. A major protocol hack with
@@ -141,15 +149,29 @@ purpose: it is the difference between a channel worth subscribing to and a wire 
 
 * 1 — Trivial.
 
-### The continuing-story test
-Most conflict, sanctions and enforcement news is the latest instalment of something that has been
-running for months. The reader already knows the war is on, the sanctions are in place, the case is
-in court. Another instalment is a 3.
+### The running-situation test — the one that matters most
+A situation the channel is already following is BACKGROUND, not news. A war that has been going
+for weeks, sanctions that are in place, a strike that is on, a case that is in court: the reader
+knows. An incident inside it — a tanker hit, a strike on a base, a drone downed, a pipeline
+attacked, casualties, damage — is the situation continuing, and it is a 3 at most, however
+dramatic the headline. There is no such thing as a "new class of target" that rescues it: a war
+produces new targets every day and none of them changes what the reader knows.
 
-Ask: does this change the EXPECTED PATH, or is it more of what was already expected? A strike on
-the same kind of target in the same war is more of the same — a 3, however large the explosion.
-It is a 4 only if it crosses a line: a new participant, a new class of target (energy exports,
-nuclear sites, a capital city), or a response that changes the rules.
+What IS news is the situation changing STATE. A situation has a small number of states, and only
+a move between them scores 4 or 5:
+
+    not started  →  fighting          war breaks out                              5
+    fighting     →  ceasefire         truce, talks that halt fire, withdrawal      5
+    ceasefire    →  fighting again    truce collapses, strikes resume               5
+    fighting     →  widened           a NEW country enters, or a new front opens    4
+    fighting     →  over              peace, surrender, the parties stand down      5
+
+If you cannot name which state it was in before and which it is in now, it did not change state,
+and it is a 3. "Iran says a tanker hit a mine" — fighting before, fighting after — 3.
+"Saudi Arabia enters the war" — fighting → widened — 4. "Ceasefire announced" — 5.
+
+The same shape applies outside war. A trade dispute has states (talks / tariffs imposed / deal).
+A regulatory case has states (filed / ruled / appealed). Score the transitions; the rest is 3.
 
 ### The priced-in test
 If the event was scheduled, widely trailed, or already reported days ago, the market has it.
@@ -159,10 +181,14 @@ A confirmation of something everybody expected is a 3, not a 4.
 This channel covers markets, so two things that elsewhere would look like "just a number" or "just
 words" can be a 4. Both have a narrow gate.
 
-**A price move is news when it is SPECIFIC and ANCHORED.** It needs a number, and it needs either a
-named cause or a notable threshold — a record, a multi-year high or low, a round level reclaimed.
+**A price move is news when it is SPECIFIC and ANCHORED — and the anchor has to be real.** It
+needs a number, and it needs a threshold a reader would remember: an all-time record, a multi-YEAR
+high or low, or a major round number crossed for the first time in the situation (oil through
+$100, the 10-year through 5%). "Highest in 112 days", "highest since July", "up for an 8th day"
+are not anchors — they are the trend continuing, and a 3.
     "Gold hits a record $4,120 as the dollar falls after soft payrolls"   → markets, commodities, 4
-    "USDJPY reclaims 160, its highest since 31 July, after a hawkish Fed"  → markets, rates_fx, 4
+    "Brent crosses $100 for the first time since 2022"                     → markets, energy, 4
+    "Brent hits $104, highest in 112 days"                                 → 3, same move continuing
     "Gold rose today" / "crypto markets are jittery"                       → relevant=false, chatter
 A number with no anchor and no cause is the vague market chatter already listed in step 1.
 
@@ -183,7 +209,9 @@ These are 3 or below no matter how dramatic the headline sounds:
 * A warning, forecast, target, or projection — same exception
 * A dispute, criticism, or accusation with no ruling
 * A single country's domestic decision with no cross-border consequence
+* Any incident inside a conflict that is already running — see the running-situation test
 * Casualty figures, damage reports, or human consequences of an ongoing conflict
+* Economic data from an economy outside the US, eurozone, China or Japan
 * One company's operational disruption, however large that company is locally
 
 Only score 4 or 5 if something is now DIFFERENT from yesterday, in a way with a price attached.

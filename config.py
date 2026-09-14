@@ -350,12 +350,15 @@ STORY_MAX_PENDING = _get_int("STORY_MAX_PENDING", 12)
 # A story nobody has added to in this long is over. A new item that looks like
 # it cannot reopen it — it starts a fresh story, which is what a reader coming
 # back the next day would expect.
-STORY_IDLE_HOURS = _get_int("STORY_IDLE_HOURS", 12)
+# 12 hours split a war into eight stories in a six-day replay: it went quiet
+# overnight, and every morning was a "new" story whose first post always goes
+# out. A running situation stays one story across a quiet night.
+STORY_IDLE_HOURS = _get_int("STORY_IDLE_HOURS", 36)
 
 # A hard end, whatever the story is doing. Without it a broad situation stays
 # live indefinitely by absorbing one item every eleven hours, and slowly starts
 # swallowing everything else.
-STORY_MAX_HOURS = _get_int("STORY_MAX_HOURS", 48)
+STORY_MAX_HOURS = _get_int("STORY_MAX_HOURS", 168)
 
 # A floor against two wires seconds apart becoming two posts — nothing more.
 # It was 25 minutes, and a timer silenced Iran announcing its retaliation on
