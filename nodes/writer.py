@@ -44,7 +44,8 @@ LENGTH_RULE_IMAGE = (
 
 # A short X post has no material to pad with, and padding means inventing.
 LENGTH_RULE_BRIEF = (
-    "25-45 words. ONE short paragraph, occasionally two.\n"
+    "As short as the news. Often that is ONE line — the bold headline alone, "
+    "and nothing under it. Never more than 45 words.\n"
     "\n"
     "The source here is only a couple of sentences long, so there is very "
     "little to work with. Report exactly what it says and STOP.\n"
@@ -208,8 +209,9 @@ Simple does NOT mean vague. Keep every number, name, date and condition from the
 
 ## Style and Format
 * First line: the headline, wrapped in <b>...</b>. Make it specific and factual, not clickbait. It should tell the reader what happened on its own, so someone who reads only the bold line still knows the news.
-* Then a blank line, then the body.
-* Short paragraphs, two or three lines each. Use a blank line between them.
+* A body goes under it ONLY when the body says something the headline does not. When the source is a single fact — a price crossing a level, a number printing, one announcement — the headline IS the post. Stop there. A body that restates the headline in different words is the most common way this channel sounds like a machine, and it is worse than no body at all.
+* If a body is earned, it is a blank line, then short paragraphs of two or three lines each, blank line between them.
+* The one thing a body may add to a one-fact post is a single line of explanation — a term the reader may not know, or the one detail from the source that gives the number its meaning. If nothing needs explaining, do not explain.
 * You may use a single 🔹 bulleted list where it genuinely helps — figures, dates, affected groups. Do not force it.
 
 **Emojis:** {emoji_rule}
@@ -231,6 +233,18 @@ No hashtags. No source link. No channel name. No sign-off. The system adds all o
 US regulators cleared eight spot ether exchange-traded funds for trading, three months after approving their bitcoin equivalents. An ETF is a fund that tracks an asset's price and trades like a normal share.
 
 Trading starts Tuesday. BlackRock and Fidelity are among the issuers, with fees between 0.15% and 0.25%.
+
+## Example of a good ONE-LINE post
+
+Source: "US diesel prices jump above $6 a gallon"
+
+<b>🔺 US diesel jumps above $6 a gallon</b>
+
+That is the whole post. There is one fact, the headline carries it, and a body would only say it again. Do NOT write:
+
+<b>🔺 US diesel jumps above $6 a gallon</b>
+
+The price of diesel fuel in the United States has risen above $6 per gallon.
 
 ---
 Now write the post for the story below."""
@@ -278,6 +292,10 @@ def _looks_incomplete(text: str) -> bool:
     without_tag = re.sub(r"<[^>]+>\s*$", "", stripped).rstrip()
     if not without_tag:
         return True
+    # A post that is only its headline is complete by design. Headlines do not
+    # end in a full stop, so the check below would throw every one of them away.
+    if re.fullmatch(r"[^<]{0,4}<b>[^<]{8,}</b>\s*", stripped):
+        return False
     return not without_tag.endswith(_SENTENCE_ENDS)
 
 
@@ -328,6 +346,12 @@ def enforce_mark(text: str) -> tuple[str, str]:
     """
     text = (text or "").lstrip()
 
+    # The model is told to put the mark BEFORE <b>, and about half the time
+    # puts it just inside instead. Both are the same intent; read either.
+    leading_tag = ""
+    if text.startswith("<b>"):
+        leading_tag, text = "<b>", text[3:].lstrip()
+
     mark = ""
     for candidate in config.POST_MARKS:
         for spelling in (candidate, candidate.replace(_VARIATION_SELECTOR, "")):
@@ -338,8 +362,10 @@ def enforce_mark(text: str) -> tuple[str, str]:
         if mark:
             break
 
-    cleaned = strip_emojis(text)
-    if not cleaned:
+    cleaned = strip_emojis(leading_tag + text)
+    # Whatever was stripped from inside the tag must not leave a gap behind.
+    cleaned = re.sub(r"<b>\s+", "<b>", cleaned)
+    if not cleaned or cleaned == "<b>":
         return "", ""
     return (f"{mark} {cleaned}" if mark else cleaned), mark
 
