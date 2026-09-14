@@ -140,19 +140,6 @@ VALID_TOPICS = ("crypto", "markets", "geopolitics")
 BRIEF_SOURCE_CHARS = _get_int("BRIEF_SOURCE_CHARS", 400)
 
 
-# We store machine names ("crypto_banter"); these are what a reader sees.
-SOURCE_DISPLAY_NAMES = {
-    "crypto_banter":  "Crypto Banter",
-    "WatcherGuru":    "Watcher Guru",
-    "TreeNewsFeed":   "Tree News",
-    "BLS_gov":        "US Bureau of Labor Statistics",
-    "coindesk":       "CoinDesk",
-    "theblock":       "The Block",
-    "guardian_world": "The Guardian",
-    "aljazeera":      "Al Jazeera",
-}
-
-
 # =============================================================================
 # WHAT GETS PUBLISHED
 # =============================================================================

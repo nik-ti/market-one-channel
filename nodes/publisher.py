@@ -1,7 +1,7 @@
 """Finishes an approved post and sends it to the channel.
 
-Adds one thing: the source credit at the end. The mark at the front belongs to
-the writer (config.POST_MARKS).
+Adds nothing to the text. The mark at the front belongs to the writer
+(config.POST_MARKS); a source credit used to go at the end and no longer does.
 
 The pacing limits are set for readers, not for Telegram — a channel that posts
 eleven times in five minutes gets muted.
@@ -54,19 +54,15 @@ def _strip_foreign_links(html: str, allowed_url: str) -> str:
     return _LINK_TAG.sub(replace, html)
 
 
-def compose(post_html: str, url: str, source_name: str) -> str:
-    """Attach the source credit. The mark at the front belongs to the writer."""
-    body = _strip_foreign_links(post_html.strip(), url)
-    parts = [body]
+def compose(post_html: str, url: str) -> str:
+    """The post as it goes out: the writer's text, with any foreign link removed.
 
-    # The stored name is a machine name ("crypto_banter"); show the human one.
-    display = config.SOURCE_DISPLAY_NAMES.get(source_name, source_name)
-    if url:
-        parts.append(f'\n<a href="{url}">— {display}</a>')
-    else:
-        parts.append(f"\n— {display}")
-
-    return "\n".join(parts)
+    No source credit. The channel speaks in its own voice, and a byline under
+    every post read as a wire feed rather than a person. The source URL is
+    still used here — to decide which links are ours — and stays on the item
+    row for anyone who needs to trace a post back.
+    """
+    return _strip_foreign_links(post_html.strip(), url)
 
 
 def check_limits() -> tuple[bool, str]:
@@ -95,7 +91,7 @@ async def execute(item, post_html: str, post_id: int,
     continuations. Failures are counted on the post row and eventually give up.
     """
     topic = item["topic"] or item["topic_hint"] or "crypto"
-    message = compose(post_html, item["url"] or "", item["source_name"])
+    message = compose(post_html, item["url"] or "")
     image_url = item["image_url"] or ""
     video_url = item["video_url"] or ""
     video_kind = item["video_kind"] or ""
