@@ -225,7 +225,7 @@ Simple does NOT mean vague. Keep every number, name, date and condition from the
 * A body goes under it ONLY when the body says something the headline does not. When the source is a single fact — a price crossing a level, a number printing, one announcement — the headline IS the post. Stop there. A body that restates the headline in different words is the most common way this channel sounds like a machine, and it is worse than no body at all.
 * If a body is earned, it is a blank line, then short paragraphs of two or three lines each, blank line between them.
 * The one thing a body may add to a one-fact post is a single line of explanation — a term the reader may not know, or the one detail from the source that gives the number its meaning. If nothing needs explaining, do not explain.
-* You may use a single 🔹 bulleted list where it genuinely helps — figures, dates, affected groups. Do not force it.
+* When the body is a list of parallel things — several figures, several places, several steps, several officials' positions — write it AS a list: one item per line, each line starting with ▪️ and a space. Never write a list as a paragraph. A single fact is not a list; two or more parallel facts are.
 
 **Emojis:** {emoji_rule}
 
@@ -246,6 +246,16 @@ No hashtags. No source link. No channel name. No sign-off. The system adds all o
 US regulators cleared eight spot ether exchange-traded funds for trading, three months after approving their bitcoin equivalents. An ETF is a fund that tracks an asset's price and trades like a normal share.
 
 Trading starts Tuesday. BlackRock and Fidelity are among the issuers, with fees between 0.15% and 0.25%.
+
+## Example of a good post with a list
+
+🏛️ <b>Fed's new projections show rates staying higher for longer</b>
+
+The Fed's new dot plot points to more tightening ahead:
+
+▪️ 12 of 18 officials expect another quarter-point hike by year-end, to 4.125%
+▪️ Four see rates reaching 4.375%
+▪️ 14 project rates ending 2026 above the long-run neutral level
 
 ## Example of a good ONE-LINE post
 
@@ -309,6 +319,9 @@ def _looks_incomplete(text: str) -> bool:
     # end in a full stop, so the check below would throw every one of them away.
     if re.fullmatch(r"[^<]{0,4}<b>[^<]{8,}</b>\s*", stripped):
         return False
+    # A list item is a line, not a sentence; it rarely ends in a full stop.
+    if stripped.splitlines()[-1].startswith(config.BULLET):
+        return False
     return not without_tag.endswith(_SENTENCE_ENDS)
 
 
@@ -337,12 +350,17 @@ def strip_emojis(text: str) -> str:
     but the ordinary space in "</b> costs" has to survive — an earlier version
     ate it and ran the words together.
     """
+    # The bullet is an emoji by encoding and a piece of layout by intent. Hide
+    # it, strip, put it back — otherwise every list loses its bullets and 🔹
+    # lists never reached the channel at all.
+    text = text.replace(config.BULLET, "\x00")
     cleaned = _EMOJI.sub("", text or "")
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)            # "a  b"   -> "a b"
     cleaned = re.sub(r" +([.,!?;:])", r"\1", cleaned)       # "a ."    -> "a."
     cleaned = re.sub(r" +(</)", r"\1", cleaned)             # "a </b>" -> "a</b>"
     cleaned = re.sub(r"(?m)^[ \t]+", "", cleaned)           # line-leading spaces
-    return cleaned.strip()
+    cleaned = re.sub(r"(?m)[ \t]+$", "", cleaned)           # line-trailing spaces
+    return cleaned.strip().replace("\x00", config.BULLET)
 
 
 # Models write ⚖️ and ⚖ interchangeably, so accept either and store the

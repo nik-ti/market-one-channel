@@ -146,6 +146,10 @@ POST_MARKS = {
     "🔒": "safety, custody, a freeze or a lock-up of funds or assets",
 }
 
+# The bullet for lists inside a post. The one emoji allowed in the body:
+# writer.strip_emojis() protects it while removing everything else.
+BULLET = "▪️"
+
 # A country's flag is also a valid mark, when that country IS the story —
 # "🇯🇵 Japan's 10-year yield tops 3%". Flags are not listed above because
 # there are 250 of them; writer.enforce_mark() accepts any flag as the mark.

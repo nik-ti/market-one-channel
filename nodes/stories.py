@@ -343,8 +343,9 @@ ROUNDUP_ANGLE = (
     "This is a ROUNDUP: several smaller developments on a story the reader is "
     "already following, none of which earned its own post. Title it plainly as "
     "an update — name the story and say 'update' or 'latest', no drama. Then "
-    "one short line per development, in the order they happened. Do not "
-    "inflate any of them, and do not add a conclusion; the reader can draw one."
+    "a list: one ▪️ bullet per development, one line each, in the order they "
+    "happened. Do not inflate any of them, and do not add a conclusion; the "
+    "reader can draw one."
 )
 
 GATE_SCHEMA = {
