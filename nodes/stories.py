@@ -155,6 +155,21 @@ They are separate stories when a reader would have to change subject:
 Being about the same MARKET is not enough. Being about the same COUNTRY is not
 enough. There has to be one situation a reader is following.
 
+BUT ONE SQUEEZE IS ONE STORY, wherever its pieces come from. When a market is
+under one pressure and several places feed it on the same day, those are one
+situation:
+
+  - "Saudi Arabia cancels crude cargoes to Europe" and, two minutes later,
+    "Libya halts output at two oil fields", and an hour on, "loadings suspended
+    at Yanbu"  -> ONE story: oil supply is being squeezed. A reader following
+    oil is following all three at once.
+  - "US 10-year through 5%" and "30-year at a 22-year high" the same afternoon
+    -> ONE story: Treasuries selling off.
+
+The test for these: would a trader watching that market call it one move? If
+the first post on the story already NAMED the new place — "compounded by
+outages in Libya" — the new item about that place belongs to it, always.
+
 AN EVENT AND ITS EXPLANATION ARE ONE STORY. "Blasts reported across southern
 Iran" and, nine minutes later, "US carrying out strikes on Iranian targets" are
 not two stories — the second says what the first was. Whenever a new item names
@@ -271,6 +286,10 @@ It has NOT changed state when:
   - another incident happens inside the same state: another strike, another
     tanker, another drone, another explosion, more casualties, more damage.
     The war was on before; it is on now. That is the war continuing.
+  - another piece of the same squeeze: supply was disrupted before, and now
+    one more port, field, pipeline or cargo is disrupted. "Loadings suspended
+    at Yanbu" after "Saudi cancels cargoes to Europe" is the squeeze
+    continuing. Hold it; the roundup will carry it.
   - a different outlet reports what we already told the reader
   - more detail arrives about the same development — extra place names, extra
     quotes, a fuller list of the same strikes
@@ -320,6 +339,14 @@ When you post, write one or two sentences telling the writer what this post is
 FOR: what is new, and what the reader already has and must not be told again.
 Be specific — name the fact, not the category."""
 
+ROUNDUP_ANGLE = (
+    "This is a ROUNDUP: several smaller developments on a story the reader is "
+    "already following, none of which earned its own post. Title it plainly as "
+    "an update — name the story and say 'update' or 'latest', no drama. Then "
+    "one short line per development, in the order they happened. Do not "
+    "inflate any of them, and do not add a conclusion; the reader can draw one."
+)
+
 GATE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -368,6 +395,15 @@ async def should_post(story: Story, now: datetime) -> dict:
                     "silenced from here on", story.id, len(story.posts))
         return {"verdict": "hold", "angle": "",
                 "reason": f"runaway stop: {len(story.posts)} posts on one story"}
+
+    # The roundup: enough has piled up for long enough. Released without asking
+    # the model, deliberately — this exists for the case where the story never
+    # gives the model a reason to say yes again.
+    if (len(story.pending) >= config.STORY_DIGEST_ITEMS
+            and quiet >= config.STORY_DIGEST_MINUTES):
+        return {"verdict": "post", "angle": ROUNDUP_ANGLE,
+                "reason": f"roundup: {len(story.pending)} items waiting, "
+                          f"{quiet:.0f} min since the last post"}
 
     known = "\n\n".join(f"[post {i + 1}]\n{p}" for i, p in enumerate(story.posts))
     pending = story.pending[-config.STORY_MAX_PENDING:]

@@ -48,7 +48,7 @@ def _expire_stale() -> None:
         db.bump_counter("expired", trimmed)
 
 
-async def process_item(item, place_only: bool = False) -> str:
+async def process_item(item, place_only: bool = False, sweep: bool = False) -> str:
     """Run one item through the brain graph.
 
     Returns one word: published | duplicate | irrelevant | low_impact | held |
@@ -70,7 +70,7 @@ async def process_item(item, place_only: bool = False) -> str:
                                  persona_loader.visible_text(existing["post_html"]))
         return "published" if sent else "retry"
 
-    state = await brain.run_item(item, dry_run=False, place_only=place_only)
+    state = await brain.run_item(item, dry_run=False, place_only=place_only, sweep=sweep)
     return state.get("outcome", "failed")
 
 
@@ -125,6 +125,29 @@ async def publish_once(limit: int | None = None) -> dict[str, int]:
             if not allowed:
                 log.info("Stopping this round: %s", reason)
                 break
+
+    # Roundups. Held items only ever reach the gate when a NEW item arrives on
+    # their story; a story that goes quiet would hold them forever. This is the
+    # sweep that releases them, once enough have waited long enough.
+    if allowed and published < batch_size:
+        for due in db.stories_due_for_roundup(config.STORY_DIGEST_ITEMS,
+                                              config.STORY_DIGEST_MINUTES):
+            carrier = db.newest_held_item(due["id"])
+            if carrier is None:
+                continue
+            log.info("Story %s has %d item(s) waiting — releasing a roundup",
+                     due["id"], due["waiting"])
+            try:
+                outcome = await process_item(carrier, sweep=True)
+            except Exception as error:  # noqa: BLE001
+                log.exception("Roundup for story %s blew up: %s", due["id"], error)
+                outcome = "error"
+            outcomes[outcome] = outcomes.get(outcome, 0) + 1
+            if outcome == "published":
+                published += 1
+                if published >= batch_size:
+                    break
+                await publisher.pause_between_sends()
 
     if outcomes:
         summary = ", ".join(f"{count} {name}" for name, count in sorted(outcomes.items()))

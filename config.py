@@ -90,6 +90,10 @@ SOURCES = [
 #   2. this dictionary
 # Removing it from here alone mutes it for this channel only.
 
+# Accounts whose pictures and clips are never used. Their text is fine; what
+# they attach is branding, charts with their logo, or memes.
+NO_MEDIA_SOURCES = {"crypto_banter"}
+
 # The topic is only a HINT; the sorter decides. It matters because the hint is
 # the fallback when the sorter cannot be reached.
 X_ACCOUNTS = {
@@ -109,25 +113,42 @@ X_ACCOUNTS = {
 # =============================================================================
 # POST APPEARANCE
 # =============================================================================
-# At most one mark per post, at the front, and often none. The WRITER picks it.
+# At most one mark per post, at the very front, before the headline. The WRITER
+# picks it, from this list or a country's flag.
 #
 # WHY A LIST AND NOT A FREE CHOICE: a free choice once put a 🔥 on a drone
-# strike, and banning emoji entirely put the same 🪙 on an ETF approval and an
-# exchange hack. Every mark below is informational rather than emotional, so a
-# wrong pick is merely unhelpful. writer.enforce_mark() removes anything else.
+# strike. Every mark below says WHAT KIND of news this is, never how to feel
+# about it, so a wrong pick is merely unhelpful. writer.enforce_mark() removes
+# anything else.
 #
 # No hashtags, on purpose: two tags covering the whole channel sorted posts the
 # way this desk thinks rather than the way a reader does.
 
 POST_MARKS = {
-    "🔻": "a price, index or other figure falling",
-    "🔺": "a price, index or other figure rising",
+    # a number moving — the short, specific posts
+    "🔺": "a price, yield or figure rising — the number is the news",
+    "🔻": "a price, yield or figure falling — the number is the news",
+    "📈": "a market or trend moving up over a period, or an expected rise",
+    "📉": "a market or trend moving down over a period, or an expected fall",
     "📊": "a scheduled data release or official statistics",
-    "🏛": "a central bank, government or regulator acting",
+    # institutions
+    "🏛️": "a central bank, government or regulator deciding or projecting",
+    "🏦": "a commercial bank, or the banking system",
     "⚖️": "a court ruling, charge, lawsuit or enforcement action",
-    "🌍": "a development between states — sanctions, tariffs, conflict",
-    "🪙": "a crypto-specific development none of the above fits",
+    "📝": "a tax, a bill, a law — legislation moving",
+    # money and markets
+    "💵": "the dollar, dollar liquidity, or money in general; crypto too",
+    "💴": "the yen or Japan's money",
+    "💶": "the euro or the eurozone's money",
+    "🛢️": "oil, gas, refining, pipelines",
+    # risk
+    "⚠️": "a hack, exploit, breach or security vulnerability",
+    "🔒": "safety, custody, a freeze or a lock-up of funds or assets",
 }
+
+# A country's flag is also a valid mark, when that country IS the story —
+# "🇯🇵 Japan's 10-year yield tops 3%". Flags are not listed above because
+# there are 250 of them; writer.enforce_mark() accepts any flag as the mark.
 
 # "markets" was added 28 Aug 2026. Widening the topic is NOT lowering the bar:
 # the market-impact test in nodes/sorter.py is unchanged and still does the
@@ -356,6 +377,14 @@ STORY_MIN_GAP_MINUTES = _get_int("STORY_MIN_GAP_MINUTES", 6)  # anti-double-post
 # A runaway stop, not an editorial rule — the gate is told the count and weighs
 # it. At 6 this was a rule, and it silenced the second half of a war.
 STORY_MAX_POSTS = _get_int("STORY_MAX_POSTS", 12)
+
+# THE ROUNDUP. Held items are fuel for a story's next post, but a story that
+# never moves again never burns it. Once this many are waiting and this long
+# has passed since the story last posted, they go out together as one roundup.
+# The one place a post is released by arithmetic rather than by the editor,
+# on purpose: it turns "lost" into "late".
+STORY_DIGEST_ITEMS = _get_int("STORY_DIGEST_ITEMS", 3)
+STORY_DIGEST_MINUTES = _get_int("STORY_DIGEST_MINUTES", 180)
 
 
 # =============================================================================

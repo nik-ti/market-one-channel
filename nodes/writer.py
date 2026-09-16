@@ -75,24 +75,37 @@ def _build_emoji_rule() -> str:
     marks = "\n".join(f"  {mark} — {meaning}"
                       for mark, meaning in config.POST_MARKS.items())
     return (
-        "AT MOST ONE, and only when it earns its place. NO emoji at all is the "
-        "normal case and is always an acceptable answer.\n"
+        "ONE mark at the VERY START of the post, before the opening <b> tag, "
+        "followed by a single space. Most posts get one. Nowhere else: not a "
+        "second one, not in the body, not at the end.\n"
         "\n"
-        "If you use one, it goes at the VERY START of the post — before the "
-        "opening <b> tag — followed by a single space. Nowhere else: not inside "
-        "the headline, not in the body, not at the end.\n"
-        "\n"
-        "You may use ONLY these, and only for the meaning given:\n"
+        "The mark says WHAT KIND of news this is, so the reader knows before "
+        "reading a word. Pick from this list, by the meaning given:\n"
         f"{marks}\n"
         "\n"
-        "Use one only when it tells the reader something the first line does "
-        "not already say at a glance — most often the direction of a number. "
-        "If the story is a statement, a plan, a dispute, an appointment or "
-        "anything without a clear direction, use none.\n"
+        "OR a country's flag — 🇺🇸 🇯🇵 🇬🇧 🇨🇳 🇩🇪 🇸🇦 — when that country IS the "
+        "story: its data, its central bank, its government acting, its market. "
+        "\"🇯🇵 Japan's 10-year yield tops 3%\". Not for a country merely "
+        "mentioned.\n"
+        "\n"
+        "How to choose, in order:\n"
+        "  1. A short post whose news IS a number moving: 🔺 🔻 for the level "
+        "now, 📈 📉 for a trend or an expectation.\n"
+        "  2. A central bank or government deciding or projecting: 🏛️ — unless "
+        "the post is short and the number is the news, then rule 1 wins. "
+        "\"🔺 Fed raises rates to 3.75%-4.00%\" but \"🏛️ Fed's projections "
+        "show rates higher for longer\".\n"
+        "  3. A bill, a tax, a law — proposed, passed, or signed: 📝. "
+        "\"📝 US House passes crypto tax bill\". A hack or exploit: ⚠️. "
+        "Oil: 🛢️. A commercial bank: 🏦. A freeze or lock-up: 🔒.\n"
+        "  4. Money itself — the dollar, liquidity, crypto flows: 💵; the yen: "
+        "💴; the euro: 💶.\n"
+        "  5. One country's own story: its flag.\n"
+        "  6. Nothing fits cleanly: no mark. Better none than a wrong one.\n"
         "\n"
         "Never use 🔥 🚀 💥 🚨 ⚡ 😱 🎉 or anything like them. This channel does "
-        "not shout. A second mark, a mark that is not on the list above, or a "
-        "mark used as decoration will be deleted automatically."
+        "not shout. A second mark, a mark that is not on the list, or a mark "
+        "used as decoration will be deleted automatically."
     )
 
 
@@ -335,6 +348,7 @@ def strip_emojis(text: str) -> str:
 # Models write ⚖️ and ⚖ interchangeably, so accept either and store the
 # canonical form from config.
 _VARIATION_SELECTOR = "️"
+_FLAG = re.compile("[\U0001F1E6-\U0001F1FF]{2}")
 
 
 def enforce_mark(text: str) -> tuple[str, str]:
@@ -361,6 +375,14 @@ def enforce_mark(text: str) -> tuple[str, str]:
                 break
         if mark:
             break
+
+    # A country's flag: two regional-indicator symbols. Any pair is a flag, so
+    # the list in config cannot enumerate them; the shape is enough.
+    if not mark:
+        flag = _FLAG.match(text)
+        if flag:
+            mark = flag.group(0)
+            text = text[len(mark):].lstrip()
 
     cleaned = strip_emojis(leading_tag + text)
     # Whatever was stripped from inside the tag must not leave a gap behind.

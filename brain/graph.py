@@ -50,6 +50,8 @@ class BrainState(TypedDict, total=False):
     item: dict                  # after the gate approves, the FOLDED story source
     dry_run: bool               # rehearsal: decide everything, write and send nothing
     place_only: bool            # file into a story, but stop before the gate
+    sweep: bool                 # a roundup: the item was judged once already,
+                                # skip straight to its story and the gate
 
     # The live Story object, rebuilt from the database by place_story. It MUST
     # be declared here: LangGraph silently drops any state key the schema does
@@ -115,18 +117,21 @@ graph = build_graph()
 
 
 async def run_item(item_row, *, dry_run: bool = False,
-                   place_only: bool = False) -> dict[str, Any]:
+                   place_only: bool = False, sweep: bool = False) -> dict[str, Any]:
     """Run one queued item through the editorial graph.
 
     dry_run makes every decision for real but writes nothing and sends nothing.
     place_only files the item into its story and stops there, for rounds where
-    the pacing limits mean nothing can go out anyway.
+    the pacing limits mean nothing can go out anyway. sweep re-enters with a
+    held item to release a roundup: it was judged once already, so dedup and
+    the sorter step aside and placement resumes its story.
     Returns the final state; state["outcome"] is the one-word result.
     """
     initial: BrainState = {
         "item": dict(item_row),
         "dry_run": dry_run,
         "place_only": place_only,
+        "sweep": sweep,
         "rewrite_count": 0,
         "editor_feedback": "",
         "outcome": "",

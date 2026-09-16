@@ -820,6 +820,38 @@ def close_stale_stories(idle_hours: int, max_hours: int) -> list[sqlite3.Row]:
     return doomed
 
 
+def stories_due_for_roundup(min_items: int, min_minutes: int) -> list[sqlite3.Row]:
+    """Live stories with enough held items waiting long enough to go out together.
+
+    Only `held` counts, not `queued`: a queued item with a story is one that was
+    filed on a round the pacing limits closed, and it will reach the gate on its
+    own next round.
+    """
+    return list(conn().execute(
+        f"""
+        SELECT s.id,
+               (SELECT COUNT(*) FROM items i
+                 WHERE i.story_id = s.id AND i.status = 'held') AS waiting
+          FROM stories s
+         WHERE s.status = 'live'
+           AND s.last_post_at IS NOT NULL
+           AND s.last_post_at < datetime('now', '-{int(min_minutes)} minutes')
+           AND waiting >= ?
+         ORDER BY s.last_post_at ASC
+        """,
+        (min_items,),
+    ))
+
+
+def newest_held_item(story_id: int) -> sqlite3.Row | None:
+    """The item that carries a roundup through the graph: the story's latest held one."""
+    return conn().execute(
+        "SELECT * FROM items WHERE story_id = ? AND status = 'held' "
+        "ORDER BY id DESC LIMIT 1",
+        (story_id,),
+    ).fetchone()
+
+
 def recent_held(limit: int) -> list[sqlite3.Row]:
     """Items the story gate decided not to post, newest first.
 

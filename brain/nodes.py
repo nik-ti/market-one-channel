@@ -72,6 +72,8 @@ async def dedup_check(state: dict) -> dict[str, Any]:
     better, because it sees every open story rather than one candidate pair.
     """
     item = state["item"]
+    if state.get("sweep"):
+        return {}          # judged when it first arrived
     verdict, _matched_id, score = await dedup.classify(item, with_meaning=True)
 
     if verdict != "duplicate":
@@ -92,6 +94,11 @@ async def sorter_node(state: dict) -> dict[str, Any]:
     item = state["item"]
     item_id = item["id"]
     dry = state.get("dry_run", False)
+
+    if state.get("sweep"):
+        return {"sorter_verdict": {"topic": item.get("topic") or "", "importance": item.get("importance") or 0,
+                                   "market": item.get("market") or "", "relevant": True,
+                                   "reason": "roundup", "fallback": False}}
 
     verdict = await sorter.execute(item)
 
