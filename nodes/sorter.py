@@ -186,6 +186,13 @@ A regulatory case has states (filed / ruled / appealed). Score the transitions; 
 If the event was scheduled, widely trailed, or already reported days ago, the market has it.
 A confirmation of something everybody expected is a 3, not a 4.
 
+When the item carries a "Scheduled release" line, you are looking at an official data print
+from the economic calendar, with the consensus forecast beside it. That settles two things:
+it is real data, never chatter; and the SURPRISE is what matters. A print that matches its
+forecast is the market getting what it priced — a 4 for a US headline release (CPI, payrolls,
+the Fed), a 3 for anything smaller. A print that misses or beats the forecast by a margin
+that changes the rate path is a 5. Score the gap between actual and forecast, not the number.
+
 ### Prices and central-bank talk
 This channel covers markets, so two things that elsewhere would look like "just a number" or "just
 words" can be a 4. Both have a narrow gate.
@@ -310,10 +317,12 @@ async def execute(item) -> dict:
     hint = item["topic_hint"] or "unknown"
     origin = "a post on X" if item["origin"] == "x" else "a news article"
 
+    scheduled = calendar.describe(item)
     user_message = (
         f"Source: {item['source_name']} ({origin})\n"
-        f"The source files this under: {hint}\n\n"
-        f"Headline: {title}\n\n"
+        f"The source files this under: {hint}\n"
+        + (f"{scheduled}\n" if scheduled else "")
+        + f"\nHeadline: {title}\n\n"
         f"Text: {body}"
     )
 

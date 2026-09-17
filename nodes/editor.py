@@ -28,6 +28,7 @@ import time
 from datetime import datetime, timezone
 
 import config
+from nodes import calendar
 from utils import db, logger as log_setup, openrouter
 
 log = log_setup.get("editor")
@@ -227,7 +228,9 @@ async def execute(item, post_html: str, post_id: int, record: bool = True,
         f"## The original source\n"
         f"From: {item['source_name']}\n"
         f"Headline: {item['title']}\n"
-        f"Text: {source_text}\n\n"
+        f"Text: {source_text}\n"
+        + (f"{calendar.describe(item)}\n" if calendar.describe(item) else "")
+        + "\n"
         f"## The finished post, filed under '{item['topic'] or item['topic_hint']}'\n"
         f"{post_html}"
     )

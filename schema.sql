@@ -182,6 +182,24 @@ CREATE TABLE IF NOT EXISTS stories (
 CREATE INDEX IF NOT EXISTS idx_stories_live ON stories(status, last_item_at DESC);
 
 
+-- ── calendar ─────────────────────────────────────────────────────────────────
+-- This week's scheduled data releases, from the free ForexFactory feed, with
+-- the consensus forecast and the previous value. Replaced wholesale on each
+-- refresh; there is nothing here worth keeping between weeks.
+CREATE TABLE IF NOT EXISTS calendar (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    country   TEXT    NOT NULL,            -- the feed's currency code: USD, EUR, JPY…
+    title     TEXT    NOT NULL,            -- "CPI y/y", "Federal Funds Rate"
+    at_utc    TEXT    NOT NULL,
+    impact    TEXT    NOT NULL,            -- High | Medium
+    forecast  TEXT    DEFAULT '',
+    previous  TEXT    DEFAULT '',
+    UNIQUE(country, title, at_utc)
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_at ON calendar(at_utc);
+
+
 -- ── editor_decisions ─────────────────────────────────────────────────────────
 -- Every verdict the AI editor gives, approvals as well as rejections, with the
 -- exact text it was looking at. This is the table that makes the editor

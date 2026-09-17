@@ -82,6 +82,11 @@ _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         # a clip that cannot be sent still has a picture to fall back to.
         ("video_url", "ALTER TABLE items ADD COLUMN video_url TEXT DEFAULT ''"),
         ("video_kind", "ALTER TABLE items ADD COLUMN video_kind TEXT DEFAULT ''"),
+        # The scheduled release this item is about, if any, with the consensus
+        # forecast and previous value pinned on at ingestion — see nodes/calendar.py.
+        ("calendar_title", "ALTER TABLE items ADD COLUMN calendar_title TEXT DEFAULT ''"),
+        ("calendar_forecast", "ALTER TABLE items ADD COLUMN calendar_forecast TEXT DEFAULT ''"),
+        ("calendar_previous", "ALTER TABLE items ADD COLUMN calendar_previous TEXT DEFAULT ''"),
     ],
 }
 
@@ -272,6 +277,7 @@ def insert_item(
     image_url: str = "",
     video_url: str = "",
     video_kind: str = "",
+    calendar: dict | None = None,
     published_at: str | None = None,
     norm_title: str = "",
     title_hash: str = "",
@@ -290,13 +296,16 @@ def insert_item(
             INSERT INTO items (
                 origin, source_name, external_id, url, title, body, image_url,
                 video_url, video_kind,
+                calendar_title, calendar_forecast, calendar_previous,
                 published_at, norm_title, title_hash, topic_hint,
                 status, status_reason, fetched_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 origin, source_name, external_id, url, title,
                 body[: config.MAX_BODY_CHARS], image_url, video_url, video_kind,
+                (calendar or {}).get("title", ""), (calendar or {}).get("forecast", ""),
+                (calendar or {}).get("previous", ""),
                 published_at,
                 norm_title, title_hash, topic_hint,
                 status, status_reason, now_iso(), now_iso(),
@@ -850,6 +859,33 @@ def newest_held_item(story_id: int) -> sqlite3.Row | None:
         "ORDER BY id DESC LIMIT 1",
         (story_id,),
     ).fetchone()
+
+
+def replace_calendar(rows: list[tuple]) -> None:
+    """Swap in this week's releases. One transaction, so a reader never sees half."""
+    conn().execute("DELETE FROM calendar")
+    conn().executemany(
+        "INSERT OR IGNORE INTO calendar (country, title, at_utc, impact, forecast, previous) "
+        "VALUES (?, ?, ?, ?, ?, ?)", rows,
+    )
+    conn().commit()
+
+
+def calendar_between(since: str, until: str) -> list[sqlite3.Row]:
+    """Scheduled releases in a window, for matching an item that just arrived."""
+    return list(conn().execute(
+        "SELECT * FROM calendar WHERE at_utc BETWEEN ? AND ? ORDER BY at_utc",
+        (since, until),
+    ))
+
+
+def calendar_age_minutes() -> float | None:
+    """How stale the stored calendar is, or None if there is none."""
+    row = conn().execute("SELECT value FROM meta WHERE key = 'calendar_refreshed_at'").fetchone()
+    if row is None:
+        return None
+    then = datetime.strptime(row["value"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - then).total_seconds() / 60
 
 
 def recent_held(limit: int) -> list[sqlite3.Row]:

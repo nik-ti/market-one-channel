@@ -20,6 +20,7 @@ import re
 from datetime import datetime, timezone
 
 import config
+from nodes import calendar
 from utils import logger as log_setup, openrouter
 
 log = log_setup.get("writer")
@@ -263,6 +264,19 @@ The Fed's new dot plot points to more tightening ahead:
 ▪️ Four see rates reaching 4.375%
 ▪️ 14 project rates ending 2026 above the long-run neutral level
 
+## Data prints: the number, then what was expected
+
+When the source carries a "Scheduled release" line, the post is a data print, and it has one
+shape: the figure, then the forecast and the previous value in brackets, on ONE line.
+
+📊 <b>US CPI 3.4% y/y (forecast 3.4%, previous 3.4%)</b>
+🔺 <b>Fed raises rates to 4.00% (forecast 4.00%, previous 3.75%)</b>
+📊 <b>US retail sales +1.2% m/m (forecast +0.8%, previous -0.6%)</b>
+
+The bracket comes from the "Scheduled release" line and from nowhere else. If that line gives
+no forecast, write no forecast. A reader who trades on this wants to see the surprise in one
+glance, not a sentence explaining that expectations were met.
+
 ## Example of a good ONE-LINE post
 
 Source: "US diesel prices jump above $6 a gallon"
@@ -467,11 +481,15 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
     body = (item["body"] or "")[: config.MAX_BODY_CHARS]
     origin = "a post on X" if item["origin"] == "x" else "a news article"
 
+    # The calendar line is part of the SOURCE: its numbers may be used and the
+    # editor checks against them. Without it "forecast 3.4%" would be drift.
+    scheduled = calendar.describe(item)
     user_message = (
         f"Source: {item['source_name']} ({origin})\n"
         f"Topic: {item['topic'] or item['topic_hint']}\n\n"
         f"Headline: {title}\n\n"
         f"Text:\n{body}"
+        + (f"\n\n{scheduled}" if scheduled else "")
     )
 
     if editor_feedback:
