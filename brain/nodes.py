@@ -423,7 +423,10 @@ async def publish_node(state: dict) -> dict[str, Any]:
         return {"outcome": "approved"}
 
     item = state["item"]
-    sent = await publisher.execute(item, state["post_html"], state["post_id"])
+    story = state.get("story")
+    reply_to = story.first_message_id if story and story.posts else None
+    sent = await publisher.execute(item, state["post_html"], state["post_id"],
+                                   reply_to_message_id=reply_to)
 
     if sent and state.get("story_id"):
         # Only after the send. Booking marks every other item of the story as

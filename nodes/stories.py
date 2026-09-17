@@ -107,6 +107,7 @@ class Story:
     last_item_at: datetime | None = None
     last_post_at: datetime | None = None
     posts: list[str] = field(default_factory=list)   # the published text, in order
+    first_message_id: int | None = None              # what later posts reply to
     pending: list[dict] = field(default_factory=list)  # items since the last post
     posted_items: list[dict] = field(default_factory=list)  # everything already covered
 
@@ -529,8 +530,12 @@ def _hydrate(row, now: datetime) -> Story:
     # visible_text, not raw post_html: the tags and the source byline would both
     # waste tokens and teach the model to put markup in its answers. The replay
     # tool strips the same way, which is what keeps the backtest honest.
-    story.posts = [persona_loader.visible_text(p["post_html"])
-                   for p in db.get_story_posts(story.id)]
+    sent = db.get_story_posts(story.id)
+    story.posts = [persona_loader.visible_text(p["post_html"]) for p in sent]
+    # A story is a thread: every later post replies to the one that opened it,
+    # so the reader sees "CFTC permits…" quoted above "CFTC cancels…".
+    if sent:
+        story.first_message_id = sent[0]["telegram_message_id"]
     return story
 
 

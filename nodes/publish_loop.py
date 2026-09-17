@@ -61,7 +61,13 @@ async def process_item(item, place_only: bool = False, sweep: bool = False) -> s
     existing = db.get_post_by_item(item_id)
     if existing is not None and existing["status"] == "approved" and not place_only:
         log.info("Item %s already has an approved post — retrying the send only", item_id)
-        sent = await publisher.execute(item, existing["post_html"], existing["id"])
+        reply_to = None
+        if item["story_id"]:
+            earlier = db.get_story_posts(item["story_id"])
+            if earlier:
+                reply_to = earlier[0]["telegram_message_id"]
+        sent = await publisher.execute(item, existing["post_html"], existing["id"],
+                                       reply_to_message_id=reply_to)
         if sent and item["story_id"]:
             # Same booking the graph does. Without it a crash-then-resume sends
             # the post and leaves the story's other items held forever.
