@@ -222,9 +222,15 @@ Simple does NOT mean vague. Keep every number, name, date and condition from the
 
 ## Style and Format
 * First line: the headline, wrapped in <b>...</b>. Make it specific and factual, not clickbait. It should tell the reader what happened on its own, so someone who reads only the bold line still knows the news.
-* A body goes under it ONLY when the body says something the headline does not. When the source is a single fact — a price crossing a level, a number printing, one announcement — the headline IS the post. Stop there. A body that restates the headline in different words is the most common way this channel sounds like a machine, and it is worse than no body at all.
+* A body exists to ANSWER A QUESTION THE HEADLINE LEAVES OPEN — using ONLY what the source says. Read your headline as the reader would and ask what they would want next: how much? who exactly? since when, until when? on what condition? Then look in the SOURCE for the answer. If it is there, the body is that answer. If it is not there, THE HEADLINE IS THE POST. Stop.
+* NEVER SUPPLY THE ANSWER YOURSELF. If the source does not say how long the exemption runs, you do not know how long it runs, and a body that says so is invented — the editor rejects it and the whole post is lost. An empty body is a missed opportunity; an invented one is a failure. When in doubt, no body.
+* THE TEST: cover the headline with your hand and read the body alone. Did it tell you one thing the headline had not, that you can point to in the source? If not, delete it. "Temporary" rewritten as "conditional", "limited" rewritten as "a limited amount" — that is the same sentence twice in different clothes, and it is worse than no body at all. It is the single most common way this channel reads as a machine.
+    Headline: "SEC approves temporary exemption for limited on-chain trading of tokenized stocks"
+    Bad body:  "The exemption is conditional and allows a limited amount of trading."   ← nothing new
+    Good body: the duration or the cap, IF AND ONLY IF the source states them
+    No body:   correct whenever the source gives no such detail
 * If a body is earned, it is a blank line, then short paragraphs of two or three lines each, blank line between them.
-* The one thing a body may add to a one-fact post is a single line of explanation — a term the reader may not know, or the one detail from the source that gives the number its meaning. If nothing needs explaining, do not explain.
+* A single line explaining a term the reader may not know is also a valid body — but only a term, not the headline again.
 * When the body is a list of parallel things — several figures, several places, several steps, several officials' positions — write it AS a list: one item per line, each line starting with ▪️ and a space. Never write a list as a paragraph. A single fact is not a list; two or more parallel facts are.
 
 **Emojis:** {emoji_rule}
@@ -410,6 +416,25 @@ def enforce_mark(text: str) -> tuple[str, str]:
     return (f"{mark} {cleaned}" if mark else cleaned), mark
 
 
+# A one-line source cannot honestly support more than a one-line post. Below
+# this many distinct words in the source, any body is either the headline again
+# or invented, and both models have been caught letting each through.
+ONE_LINE_SOURCE_WORDS = 32
+
+
+def is_one_line_source(item) -> bool:
+    """True if the source is a single sentence — a bare wire headline."""
+    text = f"{item['title'] or ''} {item['body'] or ''}"
+    words = {w for w in re.findall(r"[a-z0-9$%.]+", text.lower()) if len(w) > 1}
+    return len(words) <= ONE_LINE_SOURCE_WORDS
+
+
+def headline_only(post: str) -> str:
+    """Cut a post down to its first line — the mark and the bold headline."""
+    first = post.strip().split("\n", 1)[0].strip()
+    return first if "<b>" in first else post
+
+
 def has_thin_source(item) -> bool:
     """True if there is barely any source material.
 
@@ -521,6 +546,13 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
     post, mark = enforce_mark(post)
     if post != before:
         log.info("Tidied the marks on item %s — kept %s", item["id"], mark or "none")
+
+    # The prompt says a one-fact source is a one-line post. The model agrees and
+    # writes a body anyway, and the editor — told to judge facts, not style —
+    # waves it through. So, like the mark: guaranteed here, not requested.
+    if is_one_line_source(item) and "\n" in post.strip():
+        post = headline_only(post)
+        log.info("Item %s has a one-line source — kept the headline only", item["id"])
 
     if _looks_incomplete(post):
         log.warning("Writer produced a post that stops mid-sentence for item %s — "

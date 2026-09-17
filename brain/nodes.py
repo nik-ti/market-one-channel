@@ -29,6 +29,7 @@ log = log_setup.get("brain")
 # rewrite of the same source fixes those, so they are dropped on the spot.
 FIXABLE_RULES = frozenset({
     "FACTUAL_DRIFT", "OVERCLAIM", "INCOMPLETE", "BROKEN_HTML", "TOO_LONG",
+    "EMPTY_BODY",
 })
 
 

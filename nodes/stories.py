@@ -290,7 +290,10 @@ It has NOT changed state when:
     one more port, field, pipeline or cargo is disrupted. "Loadings suspended
     at Yanbu" after "Saudi cancels cargoes to Europe" is the squeeze
     continuing. Hold it; the roundup will carry it.
-  - a different outlet reports what we already told the reader
+  - a different outlet reports what we already told the reader — INCLUDING a
+    longer, better-written article that adds a detail or two ("the move
+    follows a similar one by the SEC"). An action was taken; a second outlet
+    describing it more fully is the same action. One detail is not a state.
   - more detail arrives about the same development — extra place names, extra
     quotes, a fuller list of the same strikes
   - a number ticks further along a trend already reported ("highest in 112
@@ -484,7 +487,10 @@ def brief_for_writer(story: Story, angle: str) -> str:
         parts.append(
             "THIS READER IS ALREADY FOLLOWING THIS STORY. The channel has "
             f"published this on it:\n\n{earlier}\n\n"
-            "Do not tell them any of that again. Write the next thing only."
+            "Do not tell them any of that again. The HEADLINE of this post is "
+            "what is new since then — not the original action restated. If the "
+            "new thing is that the SEC did the same earlier, the headline says "
+            "that; it does not announce the CFTC's move a second time."
         )
 
     if angle:
