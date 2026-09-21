@@ -19,6 +19,7 @@ Naming a transmission channel is a claim that can be wrong and reviewed later;
 from __future__ import annotations
 
 import config
+from nodes import calendar
 from utils import logger as log_setup, openrouter
 
 log = log_setup.get("sorting")
