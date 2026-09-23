@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 import config
 
-logger = logging.getLogger("news-channel.db")
+logger = logging.getLogger("market-one-channel.db")
 
 # The one shared connection. Opened on first use and kept for the life of the
 # program, because opening a database file is slower than any query we run.

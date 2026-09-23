@@ -18,3 +18,11 @@ __pycache__/
 
 # LangGraph dev server state (langgraph dev)
 .langgraph_api/
+
+# Dashboard: installed dependencies and build output
+node_modules/
+.next/
+.vercel/
+venv/
+.env.local
+.env.production

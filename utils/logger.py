@@ -19,7 +19,7 @@ def setup(level: str | None = None, to_file: bool = True) -> None:
 
     Args:
         level: "DEBUG", "INFO", "WARNING"... Defaults to LOG_LEVEL from .env.
-        to_file: also write to logs/news-channel.log. Tools set this to False
+        to_file: also write to logs/market-one-channel.log. Tools set this to False
                  because they are meant to print to your terminal, not pollute
                  the service's log.
     """
@@ -30,7 +30,7 @@ def setup(level: str | None = None, to_file: bool = True) -> None:
     level_name = (level or config.LOG_LEVEL).upper()
     level_value = getattr(logging, level_name, logging.INFO)
 
-    # "13:45:02 | news-channel.rss | INFO | Polled coindesk: 3 new"
+    # "13:45:02 | market-one-channel.rss | INFO | Polled coindesk: 3 new"
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -60,4 +60,4 @@ def setup(level: str | None = None, to_file: bool = True) -> None:
 
 def get(name: str) -> logging.Logger:
     """Get a logger for one part of the program, e.g. get("rss")."""
-    return logging.getLogger(f"news-channel.{name}")
+    return logging.getLogger(f"market-one-channel.{name}")

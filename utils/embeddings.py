@@ -70,7 +70,7 @@ async def _embed_batch(batch: list[str]) -> list[list[float]] | None:
                 headers={
                     "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
                     "Content-Type": "application/json",
-                    "X-Title": "news-channel",
+                    "X-Title": "market-one-channel",
                 },
                 json={"model": config.EMBEDDING_MODEL, "input": batch},
             )

@@ -1,7 +1,7 @@
 # --- Stop the log file growing forever ---
 #
 # INSTALL (done for you by install-service.sh):
-#   sudo cp deploy/news-channel.logrotate /etc/logrotate.d/news-channel
+#   sudo cp deploy/market-one-channel.logrotate /etc/logrotate.d/market-one-channel
 #
 # WHY THIS MATTERS
 #   systemd appends to the log file and never truncates it. Left alone, a log
@@ -15,7 +15,7 @@
 #   copies the contents away and empties the original in place, which works with
 #   a file that is being held open.
 
-/home/nikita/systems/news-channel/logs/*.log {
+/home/nikita/systems/market-one-channel/logs/*.log {
     weekly
     maxsize 50M
     rotate 4

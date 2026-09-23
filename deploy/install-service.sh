@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# --- Install the news channel as a background service ---
+# --- Install Market One Channel as a background service ---
 #
 # WHAT THIS DOES
 #   Registers the channel with systemd so it starts automatically on boot and
@@ -18,8 +18,9 @@
 
 set -euo pipefail
 
-PROJECT_DIR="/home/nikita/systems/news-channel"
-SERVICE_NAME="news-channel"
+PROJECT_DIR="/home/nikita/systems/market-one-channel"
+SERVICE_NAME="market-one-channel"
+OLD_SERVICE_NAME="news-channel"
 
 echo "Installing ${SERVICE_NAME}..."
 
@@ -37,6 +38,14 @@ if ! sudo -u nikita python3 "${PROJECT_DIR}/main.py" check >/dev/null 2>&1; then
     echo ""
     read -r -p "   Install anyway? [y/N] " reply
     [[ "${reply}" =~ ^[Yy]$ ]] || exit 1
+fi
+
+# --- Retire the old service name if it is still installed ---
+if [ -f "/etc/systemd/system/${OLD_SERVICE_NAME}.service" ]; then
+    systemctl disable --now "${OLD_SERVICE_NAME}" >/dev/null 2>&1 || true
+    rm -f "/etc/systemd/system/${OLD_SERVICE_NAME}.service"
+    rm -f "/etc/logrotate.d/${OLD_SERVICE_NAME}"
+    echo "   ✅ old ${OLD_SERVICE_NAME} service removed"
 fi
 
 # --- The service itself ---

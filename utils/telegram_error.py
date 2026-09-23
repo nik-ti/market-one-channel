@@ -15,7 +15,7 @@ import httpx
 
 import config
 
-logger = logging.getLogger("news-channel.alert")
+logger = logging.getLogger("market-one-channel.alert")
 
 # Don't send the same message over and over. If a feed is broken and the loop
 # retries every 10 minutes, one alert an hour is plenty — otherwise a single
@@ -52,7 +52,7 @@ def send_error(message: str, node_name: str = "unknown", quiet: bool = True) -> 
         # escape() so that an error message containing "<" can't break the
         # message formatting — errors often contain HTML fragments.
         text = (
-            "🚨 <b>News Channel error</b>\n"
+            "🚨 <b>Market One Channel error</b>\n"
             f"📍 Node: <code>{html.escape(node_name)}</code>\n"
             f"❌ {html.escape(message[:1500])}"
         )

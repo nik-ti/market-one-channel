@@ -132,7 +132,7 @@ def cmd_run(_args: argparse.Namespace) -> None:
         Each loop is supervised separately: if one crashes it is restarted on its
         own, rather than taking the other one down with it.
         """
-        log.info("Starting news channel — collect + publish")
+        log.info("Starting market-one-channel — collect + publish")
         await asyncio.gather(
             _supervise("collect", collect_loop.run),
             _supervise("publish", publish_loop.run),
@@ -178,7 +178,7 @@ def cmd_stats(args: argparse.Namespace) -> None:
 def main() -> None:
     """Read the command line and run the requested subcommand."""
     parser = argparse.ArgumentParser(
-        prog="news-channel",
+        prog="market-one-channel",
         description="Automated crypto / markets / geopolitics news channel.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

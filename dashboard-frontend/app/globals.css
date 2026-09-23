@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Color tokens straight from SPEC.md's UI color table. Light values are the
+   default (this app is light-mode-first); the .dark class (toggled by
+   Header.tsx) swaps in a dark set so text/surfaces stay readable. */
+:root {
+  --surface-primary: #ffffff;
+  --surface-secondary: #f8fafc;
+  --ink-primary: #0f172a;
+  --ink-muted: #64748b;
+  --border-color: #e2e8f0;
+}
+
+.dark {
+  --surface-primary: #0f172a;
+  --surface-secondary: #1e293b;
+  --ink-primary: #f1f5f9;
+  --ink-muted: #94a3b8;
+  --border-color: #334155;
+}
+
+body {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Tables need to scroll horizontally on narrow screens instead of
+   overflowing the page (SPEC.md responsive requirement). */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hand-rolled markdown styling for the Graph tab's workflow write-up (no
+   @tailwindcss/typography plugin installed — this is the whole thing). */
+.prose-workflow {
+  color: var(--ink-primary);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  max-width: 68rem;
+}
+.prose-workflow > :first-child {
+  margin-top: 0;
+}
+.prose-workflow h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+}
+.prose-workflow h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 2rem 0 0.75rem;
+}
+.prose-workflow h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1.5rem 0 0.5rem;
+}
+.prose-workflow p {
+  margin: 0.6rem 0;
+}
+.prose-workflow ul,
+.prose-workflow ol {
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.4rem;
+}
+.prose-workflow ul {
+  list-style: disc;
+}
+.prose-workflow ol {
+  list-style: decimal;
+}
+.prose-workflow li {
+  margin: 0.25rem 0;
+}
+.prose-workflow li > ul,
+.prose-workflow li > ol {
+  margin-top: 0.25rem;
+}
+.prose-workflow strong {
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+.prose-workflow em {
+  color: var(--ink-muted);
+}
+.prose-workflow hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 1.75rem 0;
+}
+.prose-workflow code {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.prose-workflow table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0 1.25rem;
+  font-size: 0.875rem;
+}
+.prose-workflow th,
+.prose-workflow td {
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+.prose-workflow th {
+  background: var(--surface-secondary);
+  font-weight: 600;
+}
+.prose-workflow blockquote {
+  border-left: 3px solid var(--border-color);
+  padding-left: 0.9rem;
+  color: var(--ink-muted);
+  margin: 0.75rem 0;
+}

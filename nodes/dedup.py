@@ -104,20 +104,20 @@ def check_headline(item_id: int, title: str, title_hash: str) -> bool:
     return True
 
 
-def check_wording(item_id: int, title: str, norm_title: str) -> bool:
-    """True if this headline is a rewrite of one we handled in the last day.
+def check_wording(item_id: int, title: str, norm_title: str) -> tuple[int | None, float]:
+    """Return (matched_id, score) if this headline is a rewrite, else (None, 0).
 
     A reworded headline shows up within hours; the same wording three weeks
     later is far more likely to be genuinely new, hence the window.
     Never raises — a database hiccup must not silently bin real news.
     """
     if not norm_title:
-        return False
+        return None, 0.0
 
     try:
         candidates = db.recent_titles(config.FUZZY_WINDOW_HOURS, exclude_item_id=item_id)
         if not candidates:
-            return False
+            return None, 0.0
 
         lookup = {text: row_id for row_id, text in candidates}
         hit = process.extractOne(
@@ -126,10 +126,10 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
         )
     except Exception as error:  # noqa: BLE001 - never drop news over an infra blip
         log.warning("Wording check failed (treating item as new): %s", error)
-        return False
+        return None, 0.0
 
     if hit is None:
-        return False
+        return None, 0.0
 
     matched_text, score = hit[0], hit[1]
     matched_id = lookup[matched_text]
@@ -143,7 +143,7 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
             detail=f"KEPT (differs only by a number): {title[:120]} ~ {matched_text[:120]}",
         )
         log.info("Near-duplicate KEPT (only a number differs, %.0f%%): %r", score, title[:80])
-        return False
+        return None, 0.0
 
     db.log_dedup_hit(
         item_id=item_id, matched_item_id=matched_id, rung="fuzzy",
@@ -151,7 +151,7 @@ def check_wording(item_id: int, title: str, norm_title: str) -> bool:
         detail=f"{title[:150]}  ~{score:.0f}%~  {matched_text[:150]}",
     )
     log.info("Duplicate wording (%.0f%%): %r", score, title[:80])
-    return True
+    return matched_id, score
 
 
 async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | None, float]:
@@ -298,9 +298,11 @@ async def classify(item, *, with_meaning: bool = True) -> tuple[str, int | None,
 
     What the brain's dedup_check node calls. Two answers: duplicate, or not.
     """
-    if check_wording(item["id"], item["title"] or "", item.get("norm_title") or ""):
-        # Always dropped, and carry no matched id. Synthetic score of 100.
-        return "duplicate", None, 100.0
+    wording_id, _ = check_wording(item["id"], item["title"] or "", item.get("norm_title") or "")
+    if wording_id is not None:
+        # Synthetic 100.0: the caller reads the score to pick which counter to
+        # bump, and a real fuzzy score (92-99) lands in the cosine band instead.
+        return "duplicate", wording_id, 100.0
     if not with_meaning:
         return "different", None, 0.0
     return await check_meaning(item, item_norm_title=item.get("norm_title") or "")
@@ -318,15 +320,19 @@ async def execute(item, *, with_meaning: bool = True) -> bool:
     item_id = item["id"]
     title = item["title"] or ""
 
-    if check_wording(item_id, title, item["norm_title"] or ""):
-        db.set_item_status(item_id, "duplicate", "same wording as a recent story")
+    matched_id, _ = check_wording(item_id, title, item["norm_title"] or "")
+    if matched_id is not None:
+        db.set_item_status(item_id, "duplicate",
+                           f"duplicate of item {matched_id} (same wording as a recent story)")
         db.bump_counter("deduped_fuzzy")
         return True
 
     if with_meaning:
-        verdict, _, _ = await check_meaning(item, item_norm_title=item["norm_title"] or "")
+        verdict, matched_id, _ = await check_meaning(item, item_norm_title=item["norm_title"] or "")
         if verdict == "duplicate":
-            db.set_item_status(item_id, "duplicate", "same event as a recent story")
+            reason = (f"duplicate of item {matched_id} (same event as a recent story)"
+                      if matched_id else "same event as a recent story")
+            db.set_item_status(item_id, "duplicate", reason)
             return True
 
     return False

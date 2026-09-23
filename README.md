@@ -1,4 +1,4 @@
-# News Channel — crypto / markets / geopolitics
+# Market One Channel — crypto / markets / geopolitics
 
 **What it does:** reads news from RSS feeds and from X accounts, throws away
 anything it has already covered or that isn't market-moving, rewrites what's left
@@ -161,7 +161,8 @@ after a day or two.
 - **In:** nothing · **Out:** `Tweet` objects, with image addresses
 - **Why a relay:** X allows one connection, and `trading/infra/tweet-relay`
   already holds it. It copies every tweet onto a shared conveyor belt; we watch
-  it with our own bookmark (`news-channel`), completely separate from the
+  it with our own bookmark (`news-channel` — the Redis group name, left as-is
+  so the live stream does not lose its place), completely separate from the
   trading bot's (`sniper-ingest`). Both see everything; neither disturbs the other.
 - **The important difference:** unlike the trading bot, we **catch up** after a
   restart rather than skipping what we missed — a news channel with a hole in it
@@ -413,12 +414,12 @@ python3 tools/stats.py --dropped    # what real news did the gate refuse to run?
 python3 tools/check_sources.py      # are all the feeds still alive?
 python3 tools/check_dedup.py        # is the meaning check actually running?
 python3 tools/check_tweets.py       # watch the X stream live
-tail -f logs/news-channel.log       # what is it doing right now?
+tail -f logs/market-one-channel.log       # what is it doing right now?
 ```
 
 ### Adding a feed
 Edit `SOURCES` in `config.py`, then `python3 tools/check_sources.py` to confirm
-it works, then `sudo systemctl restart news-channel`.
+it works, then `sudo systemctl restart market-one-channel`.
 
 ### Removing a feed or an X account
 Delete it from `SOURCES` or `X_ACCOUNTS`, then restart. The restart disables the

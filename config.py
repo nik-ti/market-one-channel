@@ -15,7 +15,7 @@ from dotenv import dotenv_values
 HERE = Path(__file__).resolve().parent
 DB_PATH = HERE / "data" / "news.db"
 SCHEMA_PATH = HERE / "schema.sql"
-LOG_PATH = HERE / "logs" / "news-channel.log"
+LOG_PATH = HERE / "logs" / "market-one-channel.log"
 
 _ENV = dotenv_values(HERE / ".env")
 
@@ -75,6 +75,10 @@ SOURCES = [
     # ── Crypto ──
     {"name": "coindesk",       "topic": "crypto", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
     {"name": "theblock",       "topic": "crypto", "url": "https://www.theblock.co/rss.xml"},
+    {"name": "protos",         "topic": "crypto", "url": "https://protos.com/feed"},
+    {"name": "glassnode_research", "topic": "crypto", "url": "https://research.glassnode.com/rss/"},
+    {"name": "unchained",      "topic": "crypto", "url": "https://unchainedcrypto.com/feed/"},
+    {"name": "therage",        "topic": "crypto", "url": "https://www.therage.co/rss/"},
 
     # ── Geopolitics ──
     {"name": "guardian_world", "topic": "geopolitics", "url": "https://www.theguardian.com/world/rss"},
@@ -187,7 +191,9 @@ POLL_MINUTES = _get_int("POLL_MINUTES", 10)
 # Reading tweets from the shared relay
 REDIS_URL = _get("REDIS_URL", "redis://localhost:6379/0")
 TWEET_STREAM_KEY = _get("TWEET_STREAM_KEY", "tweets:stream")
-# Must stay different from the trading bot's group ("sniper-ingest").
+# Redis bookmark name. Must stay different from the trading bot ("sniper-ingest"),
+# and must not change on this live channel — a new name would start a new
+# bookmark and either skip tweets or re-read old ones.
 TWEET_STREAM_GROUP = _get("TWEET_STREAM_GROUP", "news-channel")
 # Guards that stop a restart flooding the channel with old tweets.
 X_MAX_AGE_MINUTES = _get_int("X_MAX_AGE_MINUTES", 45)

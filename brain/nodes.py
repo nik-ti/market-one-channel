@@ -75,13 +75,16 @@ async def dedup_check(state: dict) -> dict[str, Any]:
     item = state["item"]
     if state.get("sweep"):
         return {}          # judged when it first arrived
-    verdict, _matched_id, score = await dedup.classify(item, with_meaning=True)
+    verdict, matched_id, score = await dedup.classify(item, with_meaning=True)
 
     if verdict != "duplicate":
         return {}
 
     if not state.get("dry_run", False):
-        db.set_item_status(item["id"], "duplicate", "same event as a recent story")
+        # Naming the item it repeats is what makes a silent drop auditable later.
+        reason = (f"duplicate of item {matched_id} (same event as a recent story)"
+                  if matched_id else "same event as a recent story")
+        db.set_item_status(item["id"], "duplicate", reason)
         db.bump_counter(
             "deduped_fuzzy" if score >= 100
             else "deduped_meaning" if score >= config.COSINE_CERTAIN
