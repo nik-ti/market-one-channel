@@ -12,32 +12,69 @@ News arrives from multiple sources:
 - Twitter/X posts (via tweet-relay service)
 - Reuters, Bloomberg, and other wire services
 
-**Semantic Deduplication (Cosine Similarity):**
-When a new item arrives, the system:
-1. Converts the title into a semantic embedding (OpenRouter /embeddings API)
-2. Compares it against all recent posted items (cosine similarity threshold: 0.80)
-3. If match found: mark as "duplicate" → archive it (never posts)
-4. If new: continues to the next stage
+**Deduplication — five checks, cheapest first.** An item only reaches a check if
+everything above let it through. Embeddings alone never decide; an LLM does.
 
-*Why this works:* "Fed raises rates 25 bps" and "Fed hiking by quarter point" are the same news, different words. Cosine similarity ≥ 0.80 catches this. Threshold calibrated on real data.
+1. **Same link or tweet** — free, enforced by the database.
+2. **Same headline** — free, a fingerprint of the headline text.
+3. **Nearly the same wording** — ~1ms, rapidfuzz ratio ≥ 92 within 24h.
+   "Fed holds rates" vs "Fed leaves rates". If the two differ *only by a number*
+   ("16 dead" → "17 dead"), it is **kept**, not merged — scoring cannot tell that
+   apart from "Fed cuts 25bp" → "50bp", and both score ~97%.
+4. **Same subject** — one embeddings call. This produces a **shortlist, not a
+   verdict**:
+   - **≥ 0.95** — near-verbatim, merged without paying for a judgement
+   - **≥ 0.72** — worth asking about, goes to check 5 (top 3 candidates, 48h window)
+   - **below 0.72** — a different story, stop here
+5. **Same event** — one LLM call. The judge reads *both* texts and rules three ways:
+   duplicate, different, or **continuation**. A continuation is not a duplicate and
+   is not dropped — where it belongs is the story layer's question, and it has every
+   open story to go on rather than one pair.
+
+*Why check 5 exists:* on 19 hand-labelled pairs from this channel, real duplicates
+scored 0.738–0.993 and genuinely different ones 0.785–0.900. **The ranges overlap**,
+so no single cosine cutoff can work. The embedding tracks what a story is *about*;
+only the judge reads what actually *happened*.
+
+*A time gate runs before checks 4 and 5:* candidates far apart in time are discarded
+first. Daily ETF flows are near-identical edition to edition, so yesterday's is the
+most dangerous thing in the pool. Every real duplicate measured here arrived within
+10.1 hours; the worst false merges were 24 hours apart.
+
+*It fails open:* if the embeddings or the judge are unavailable, the item goes through
+unchecked. A duplicate is a small embarrassment; a silent channel is worse. Every such
+failure is counted, and a run of them raises an alert.
 
 ---
 
 ### Phase 2: SORTING & FILTERING (Sorter Node)
 The sorter judges: "Is this worth posting?"
 
-**Sorter criteria:**
-1. **Importance score** (1-10): calculated by LLM based on market impact
-2. **Topic check:** crypto, markets, news (not promotions, spam, or off-topic)
-3. **Redundancy test:** "Is this already being discussed in an open story?"
-4. **Economy weight:**
-   - US news: weight 5 (most important)
-   - EUR, CNY, JPY: weight 4
-   - Other: weight 3
-5. **Price anchor test:** Does this news actually move markets, or is it noise?
-6. **Priced-in test:** Is this using the economic calendar to check if it's stale?
+It returns four fields: **relevant** (true/false), **topic** (\`crypto\`,
+\`geopolitics\` or \`other\`), **market** — which market has to reprice — and
+**importance, 1 to 5**. The bar to publish is **4**.
 
-**Output:** \`relevant\` (continues) or \`low_impact\`/\`irrelevant\` (archived, never posts)
+**The question it actually asks is "who has to look again?"** Not "is this
+interesting". An item scores on *how much of the world reprices*:
+
+- **US data — CPI, payrolls, the Fed** — reprices everything: a **5 or 4**.
+- **Eurozone, China, Japan** headline releases reprice a large region: a **4**.
+- **Any other single economy's** inflation, jobs, GDP or rate decision reprices its
+  own currency and little else: a **3**, *even when the number surprises*. Canada's
+  inflation is a 3. Australia's rate decision is a 3.
+
+**The market field is a hard gate, enforced in code, not just asked for.** If the
+model answers that **no** market has to reprice, the item is capped at **3** —
+deliberately one below the bar. A model that says nothing needs repricing and then
+scores the item 4 has contradicted itself, and the concrete field is believed over
+the number. This is why most items die here with \`market none\`.
+
+**It also holds the economic calendar:** the sorter is shown the scheduled release
+this item matches, with its forecast and previous value, so it can tell a number that
+landed on consensus (already priced in) from one that did not.
+
+**Output:** relevant → continues; otherwise \`low_impact\` or \`irrelevant\`, archived
+with a written reason you can read on the Posts tab.
 
 ---
 
@@ -64,17 +101,36 @@ News doesn't post as isolated items. Instead, it joins a **story** — a groupin
 ### Phase 4: STORY GATE (Should_Post Node)
 The gate asks: "Has the story state changed, or is this just noise within the same story?"
 
-**State ladder:**
-- STARTED → RISING → PEAKED → FALLING → ENDED
-- (Or STEADY if no clear direction)
+**There is no single ladder.** Each kind of situation has its own short list of
+states, and only a move between them earns a post:
+
+| situation | its states |
+|---|---|
+| a war | not started → fighting → ceasefire → fighting again → widened → over |
+| a dispute | talks → tariffs imposed → deal |
+| a case | filed → ruled → appealed |
+| a price run | below a landmark → through it (once) |
+
+**It HAS changed state when:** a ceasefire, truce, deal, ruling or resumption puts
+the situation somewhere else than the last post described; a **new** party or front
+enters (a second country's ships are hit, a second regulator opens a case); or a price
+crosses a landmark the reader will remember — a record, a multi-year extreme, a major
+round number — for the **first** time in this story.
+
+**It has NOT changed state when:** another incident happens inside the same state
+(another strike, another tanker, more casualties — the war was on before and is on
+now); another piece of the same squeeze is disrupted; or a different outlet reports
+what the reader was already told, *including* a fuller write-up of it.
 
 **Gate logic:**
-- **First post of a story:** Always post (reader needs to know this story exists)
-- **Second+ post:** Only post if the STATE CHANGED
-  - ✅ "Yields start rising" → post (STARTED → RISING)
-  - ✅ "Yields are falling now" → post (RISING → FALLING)
-  - ❌ "Another yield data point, still rising" → hold (no state change)
-- **Held items:** Queued, will be included in the story's next post or a digest
+- **First post of a story:** always posts. Every story speaks at least once, so a
+  "hold" always means "the reader already knows about this", never "this was never covered".
+- **Second post onward:** only on a state change, by the test above.
+- **Held items:** kept, and carried by the story's next post or by a roundup.
+
+*Note:* the **State** shown on the Stories tab is not one of these — it is the story's
+own lifecycle, \`live\` or \`closed\`. The states above live inside the gate's judgement,
+not in the database.
 
 ---
 
@@ -94,16 +150,23 @@ For items that pass the gate, the writer composes the Telegram post.
 ### Phase 6: EDITING (Editor Node)
 The editor validates the post before sending.
 
-**Editor checks (11 rules):**
-- ✓ No empty body
-- ✓ Not just a headline (needs substance)
-- ✓ Emoji used correctly (not spam)
-- ✓ No HTML markup showing (only clean text)
-- ✓ No source byline in body (URL is separate)
-- ✓ Response posts reply to story's first message
-- ✓ Calendar data matches real scheduled releases (no drift)
+**It can only reject by naming one of 11 rules** — the list is enforced by the
+schema, so it cannot invent a reason:
 
-**If edit fails:** item is rejected and archived
+\`FACTUAL_DRIFT\` · \`OVERCLAIM\` · \`HYPE\` · \`NO_NEWS\` · \`WRONG_TOPIC\` ·
+\`EMPTY_BODY\` · \`INCOMPLETE\` · \`TOO_LONG\` · \`BROKEN_HTML\` · \`INJECTION\` · \`UNSAFE\`
+
+The rule that fired is written into the item's reason, which is what you read on the
+Posts tab — e.g. \`editor rejected it ['WRONG_TOPIC']: ...\`.
+
+**Some rules are fixable, some are fatal.** A fixable one (a broken tag, an empty
+body) sends the post back to the writer for another attempt, up to a limit. The rest
+end it.
+
+**This is the one station that fails CLOSED.** Everywhere else — dedup, the sorter,
+placement, the gate — a failure lets the item through, because a silent channel is
+worse than a duplicate. Here the reasoning inverts: if the editor cannot judge the
+text, nothing is sent. A wrong post cannot be recalled.
 
 ---
 
@@ -111,9 +174,16 @@ The editor validates the post before sending.
 Approved post is sent to Telegram \`@market_one_news\`
 
 **Rules:**
-- Respect rate limits: 6 min gap between posts, max 12 posts per story
-- Reply to first post if it's a story update (creates a thread)
-- Include media if source has video/GIF (via tweet-relay)
+- **Channel-wide: 4 posts an hour** (\`.env\` overrides the \`config.py\` default of 12).
+  When that ceiling is hit, items are still sorted and placed into stories — only the
+  sending waits. Otherwise a busy hour would expire the queue and lose the content.
+- **Per story: a 6-minute minimum gap and 12 posts maximum.** Both are context for the
+  gate rather than hard walls — a 25-minute gap once silenced a real escalation.
+- A later post in a story **replies to that story's first post**, so it reads as a thread.
+- Video and GIFs from a tweet are sent as real media, not a link — except from
+  \`crypto_banter\`, whose media is dropped on purpose.
+- An item that waits in the queue longer than **90 minutes expires**. Late breaking news
+  is worse than none.
 
 ---
 
@@ -138,9 +208,9 @@ The dashboard shows you **this entire pipeline in real time:**
 
 1. **One item ≠ one post.** An item is a news wire. A post is what readers see. 3 wire items → 1 post if they're the same story state.
 
-2. **Semantic dedup protects against noise.** Cosine 0.80 catches rephrasing; threshold calibrated so "Fed cuts" doesn't repeat 10 times.
+2. **Embeddings shortlist, an LLM decides.** Cosine similarity says what two items are *about*; it cannot say whether the same thing *happened*. Real duplicates and genuinely different stories overlap on that score, so anything between 0.72 and 0.95 is handed to a judge that reads both texts.
 
-3. **Story state machine prevents repetition.** "Yields rising" posts once. The next "yields still rising" is held. When they fall, that's a new post.
+3. **A story speaks once per state, not once per wire item.** "Yields through a multi-year high" posts once; the next yield print inside the same move is held. A ceasefire, a ruling, a new party entering, or a price through a landmark it has not crossed before starts the next post.
 
 4. **Gate = second opinion.** If the sorter misplaces an item, the gate can eject it to its own story, preventing silent loss.
 
@@ -152,9 +222,14 @@ The dashboard shows you **this entire pipeline in real time:**
 
 ## 🔧 Config Tuning (if needed)
 
-- **Dedup threshold** (0.80): raise to be stricter, lower to catch more rephrases
-- **Sorter importance cutoff** (e.g., ≥ 5): raise = fewer posts, lower = more noise
-- **Gate state ladder**: currently STARTED → RISING → PEAKED → FALLING → ENDED
-- **Rate limits**: 6 min gap, 12 posts/story max — tune if posting too fast/slow
-- **Story timeout**: 36 hours idle = story closes (can be adjusted)
+Defaults live in \`config.py\`, but \`.env\` overrides them — read \`.env\` first, or you
+will tune a number the running channel never sees.
+
+- **\`COSINE_SHORTLIST\`** (0.72): what reaches the judge. Lower catches more rephrases at the cost of more LLM calls; 0.75 already started missing real duplicates.
+- **\`COSINE_CERTAIN\`** (0.95): merged outright, no judge. Raise if you see wrong merges.
+- **\`FUZZY_THRESHOLD\`** (92): how alike two headlines must be to count as the same wording.
+- **\`MIN_IMPORTANCE\`** (4): the publishing bar. Raise = fewer posts, lower = more noise.
+- **\`MAX_POSTS_PER_HOUR\`** (**4** — overridden in \`.env\`; the default in \`config.py\` is 12).
+- **\`STORY_MIN_GAP_MINUTES\`** (6) and **\`STORY_MAX_POSTS\`** (12): per story, anti-double-post.
+- **\`STORY_IDLE_HOURS\`** (36) / **\`STORY_MAX_HOURS\`** (168): when a story goes quiet, and its hard end.
 `;
