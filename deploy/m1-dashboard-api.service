@@ -1,0 +1,48 @@
+# --- systemd service for the Market One dashboard API ---
+#
+# WHAT THIS IS
+#   The read-only API the dashboard front end (on Vercel) reads. It serves
+#   data/news.db and never writes to it. Without this running, the dashboard
+#   shows its "API offline" banner and nothing else.
+#
+# INSTALL
+#   sudo cp deploy/m1-dashboard-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now m1-dashboard-api
+#
+# EVERYDAY COMMANDS
+#   sudo systemctl status m1-dashboard-api      is it running?
+#   sudo systemctl restart m1-dashboard-api     restart it
+#   tail -f logs/m1-dashboard-api.log           watch what it is doing
+
+[Unit]
+Description=Market One dashboard API — read-only view of the channel database
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nikita
+Group=nikita
+WorkingDirectory=/home/nikita/systems/market-one-channel/dashboard-backend
+
+# Bound to localhost on purpose: nginx is the only thing that should reach it,
+# and it forwards /api/dashboard/v1 here. Listening on 0.0.0.0 would also open
+# port 8000 to the whole internet, bypassing nginx entirely.
+ExecStart=/home/nikita/systems/market-one-channel/dashboard-backend/venv/bin/uvicorn \
+    main:app --host 127.0.0.1 --port 8000
+
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+StandardOutput=append:/home/nikita/systems/market-one-channel/logs/m1-dashboard-api.log
+StandardError=append:/home/nikita/systems/market-one-channel/logs/m1-dashboard-api.log
+
+# This box is shared with the trading bots. A runaway process here must not
+# take them down with it.
+MemoryHigh=300M
+MemoryMax=500M
+
+[Install]
+WantedBy=multi-user.target
