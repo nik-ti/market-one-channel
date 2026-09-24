@@ -34,6 +34,9 @@ ExecStart=/home/nikita/systems/market-one-channel/dashboard/backend/venv/bin/uvi
 
 Restart=always
 RestartSec=10
+# The shared secret the dashboard's server sends. Without it this API
+# refuses every request, which is the intended behaviour if it is missing.
+Environment=DASHBOARD_TOKEN=QxBMlb_UWbFF_Bex16BN44EILE_dkQfxOVbKEyVWGwY
 Environment=PYTHONUNBUFFERED=1
 
 StandardOutput=append:/home/nikita/systems/market-one-channel/logs/m1-dashboard-api.log

@@ -1,12 +1,18 @@
 """Market One Dashboard backend — FastAPI app.
 
-Serves read-only data from the active channel's database to the dashboard frontend under
-/api/v1/*. Personal tool: no auth, CORS open to any origin, polling only
-(no WebSocket). Run directly with `python3 main.py` or via run.sh.
+Serves the active channel's database to the dashboard frontend under /api/v1/*.
+
+Every request must carry the shared token. nginx publishes this API on the
+open internet, so without it anyone who knows the address can read the
+channel's data — and, once the dashboard can push a rejected item back into
+the pipeline, do that too. The token is added by the dashboard's server, never
+by the browser, so it stays out of the page source.
 """
 
 from __future__ import annotations
 
+import hmac
+import os
 import traceback
 
 from fastapi import FastAPI, Request
@@ -18,8 +24,25 @@ from db_connector import DatabaseUnavailableError
 
 app = FastAPI(title="Market One Dashboard API", version="1.0.0")
 
-# Personal tool used from a phone/laptop/Vercel preview URLs — no reason to
-# restrict origins.
+# Set in the systemd unit. Empty means "refuse everything" rather than "let
+# everyone in": a missing secret must fail closed, or a typo in the unit file
+# quietly reopens the API to the internet.
+DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "")
+
+PUBLIC_PATHS = {"/api/v1/health", "/docs", "/openapi.json"}
+
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    if request.url.path not in PUBLIC_PATHS:
+        supplied = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+        # compare_digest so a wrong token cannot be guessed a character at a time.
+        if not DASHBOARD_TOKEN or not hmac.compare_digest(supplied, DASHBOARD_TOKEN):
+            return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    return await call_next(request)
+
+# The token is what guards this API; the browser never calls it directly, so
+# origins are not the control here.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
