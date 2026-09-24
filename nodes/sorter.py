@@ -136,6 +136,21 @@ purpose: it is the difference between a channel worth subscribing to and a wire 
       France's 10-year yield on its own is a 3 — unless it is part of a wider move already
       being followed, in which case it is that story continuing, which is also a 3.
 
+      JAPANESE RATES ARE THE EXCEPTION TO THAT LAST LINE, and they are not a domestic story.
+      Japan is the largest foreign holder of US Treasuries, and cheap yen funds carry trades
+      worldwide. When JGB yields or the BoJ's policy move, Japanese institutions have a reason
+      to sell foreign bonds and bring money home, and yen-funded positions everywhere get more
+      expensive to hold — which is why a BoJ move unwound global risk assets in August 2024.
+      So: a JGB yield at a multi-decade or multi-year high, a BoJ rate or YCC decision, or the
+      yen through a landmark level is market "rates_fx" and at least a 4. It is NEVER "none"
+      and never "a single country's domestic interest-rate move". The same goes for a US
+      Treasury yield at a landmark. This does NOT promote unanchored chatter: "the yen is
+      falling apart" with no level and no cause is still a 3, exactly as it would be for any
+      other currency. The exception is about which moves matter, not about the word "Japan". What makes France different is that nobody funds carry trades in euros and
+      France holds nobody else's debt.
+
+      Judge a market move by WHO ELSE HAS TO ACT because of it, not by which flag is on it.
+
 * 4 — Something is now settled and different, AND you named a market above.
       A ban, approval, licence, or rule ACTUALLY IMPOSED by a regulator or government.
       A law passed or taking effect. A tariff or sanction imposed. A major protocol hack with

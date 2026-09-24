@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api import graph, posts, prompts, stats, stories
+from api import graph, nodes, posts, stats, stories
 from db_connector import DatabaseUnavailableError
 
 app = FastAPI(title="Market One Dashboard API", version="1.0.0")
@@ -48,7 +48,7 @@ app.include_router(posts.router, prefix="/api/v1")
 app.include_router(stories.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
 app.include_router(graph.router, prefix="/api/v1")
-app.include_router(prompts.router, prefix="/api/v1")
+app.include_router(nodes.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")

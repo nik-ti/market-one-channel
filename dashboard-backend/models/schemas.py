@@ -88,8 +88,17 @@ class GraphResponse(BaseModel):
     edges: list[GraphEdge]
 
 
-class PromptsResponse(BaseModel):
-    prompts: dict[str, str]
+class NodeInfo(BaseModel):
+    id: str
+    label: str
+    description: str
+    model: str
+    fallback_model: str | None = None
+    prompt: str | None = None
+
+
+class NodesResponse(BaseModel):
+    nodes: list[NodeInfo]
 
 
 class ErrorResponse(BaseModel):
