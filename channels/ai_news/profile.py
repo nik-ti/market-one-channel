@@ -48,13 +48,13 @@ NO_MEDIA_SOURCES: set[str] = set()
 USE_ECONOMIC_CALENDAR = False
 
 # The same stations as the markets channel for now. A media-reading station
-# would slot in after read_article, once it exists in nodes.py beside this file.
+# would slot in after fetch_article, once it exists in nodes.py beside this file.
 PIPELINE = [
-    "dedup_check",
+    "dedup",
     "sorter",
-    "read_article",
-    "place_story",
-    "story_gate",
+    "fetch_article",
+    "story_organizer",
+    "gatekeeper",
     "writer",
     "editor",
     "publish",

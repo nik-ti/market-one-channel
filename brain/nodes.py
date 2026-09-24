@@ -51,7 +51,7 @@ def route_after_sorter(state: dict) -> str:
     return "end" if state.get("outcome") else "place"
 
 
-async def read_article_node(state: dict) -> dict[str, Any]:
+async def fetch_article_node(state: dict) -> dict[str, Any]:
     """Read the article this item links to, so the writer has more than a headline.
 
     Runs only on items the sorter kept — there is nothing to gain from reading
@@ -64,14 +64,14 @@ async def read_article_node(state: dict) -> dict[str, Any]:
     return {}
 
 
-def route_after_place(state: dict) -> str:
+def route_after_story_organizer(state: dict) -> str:
     # Placement still runs when the pacing limits forbid posting. An item that
     # is not filed into its story before QUEUE_TTL_MINUTES expires takes its
     # content out of that story with it, and the story never learns of it.
     return "end" if state.get("place_only") else "gate"
 
 
-def route_after_gate(state: dict) -> str:
+def route_after_gatekeeper(state: dict) -> str:
     return "end" if state.get("outcome") else "write"
 
 
@@ -85,7 +85,7 @@ def route_after_editor(state: dict) -> str:
     return "rewrite" if state.get("rewrite_requested") else "publish"
 
 
-async def dedup_check(state: dict) -> dict[str, Any]:
+async def dedup_node(state: dict) -> dict[str, Any]:
     """Drop an item the channel has already covered.
 
     Only two answers now. "This continues something" used to be a third, handled
@@ -179,7 +179,7 @@ async def sorter_node(state: dict) -> dict[str, Any]:
 # STATION 3: which story is this, and has it moved?
 # =============================================================================
 
-async def place_story_node(state: dict) -> dict[str, Any]:
+async def story_organizer_node(state: dict) -> dict[str, Any]:
     """Put the item into a running story, or open one for it.
 
     The only station that sees the incoming item and the channel's own output
@@ -236,7 +236,7 @@ async def place_story_node(state: dict) -> dict[str, Any]:
     return {"story": story, "story_id": story.id}
 
 
-async def story_gate_node(state: dict) -> dict[str, Any]:
+async def gatekeeper_node(state: dict) -> dict[str, Any]:
     """Decide whether the story has moved enough to be worth a post.
 
     Three answers. "post" folds the whole story into the writer's source;
@@ -497,13 +497,18 @@ async def publish_node(state: dict) -> dict[str, Any]:
 # item. A channel that needs a station of its own adds it to this mapping from
 # its channels/<name>/nodes.py, then names it in its PIPELINE.
 STAGES: dict[str, tuple] = {
-    "dedup_check":  (dedup_check,       route_after_dedup,  {"drop": "end", "sort": "next"}),
-    "sorter":       (sorter_node,       route_after_sorter, {"place": "next", "end": "end"}),
-    "read_article": (read_article_node, None,               {}),
-    "place_story":  (place_story_node,  route_after_place,  {"gate": "next", "end": "end"}),
-    "story_gate":   (story_gate_node,   route_after_gate,   {"write": "next", "end": "end"}),
-    "writer":       (writer_node,       route_after_writer, {"edit": "next", "end": "end"}),
-    "editor":       (editor_node,       route_after_editor,
-                     {"publish": "next", "rewrite": "writer", "end": "end"}),
-    "publish":      (publish_node,      None,               {}),
+    "dedup":           (dedup_node,            route_after_dedup,
+                        {"drop": "end", "sort": "next"}),
+    "sorter":          (sorter_node,           route_after_sorter,
+                        {"place": "next", "end": "end"}),
+    "fetch_article":   (fetch_article_node,    None, {}),
+    "story_organizer": (story_organizer_node,  route_after_story_organizer,
+                        {"gate": "next", "end": "end"}),
+    "gatekeeper":      (gatekeeper_node,       route_after_gatekeeper,
+                        {"write": "next", "end": "end"}),
+    "writer":          (writer_node,           route_after_writer,
+                        {"edit": "next", "end": "end"}),
+    "editor":          (editor_node,           route_after_editor,
+                        {"publish": "next", "rewrite": "writer", "end": "end"}),
+    "publish":         (publish_node,          None, {}),
 }

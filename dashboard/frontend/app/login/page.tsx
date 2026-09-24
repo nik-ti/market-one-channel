@@ -27,7 +27,7 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center px-4">
       <form onSubmit={submit} className="w-full max-w-sm space-y-4">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-primary)]">Market One</h1>
+          <h1 className="text-xl font-semibold text-[var(--text-primary)]">Simple Flow Channels</h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">Enter the password to continue.</p>
         </div>
 

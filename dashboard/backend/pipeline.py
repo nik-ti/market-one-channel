@@ -13,8 +13,8 @@ import paths
 # What every channel declares today, and the fallback if a profile.py can't
 # be parsed for some reason — never crash the dashboard over this.
 DEFAULT_PIPELINE = [
-    "dedup_check", "sorter", "read_article", "place_story",
-    "story_gate", "writer", "editor", "publish",
+    "dedup", "sorter", "fetch_article", "story_organizer",
+    "gatekeeper", "writer", "editor", "publish",
 ]
 
 

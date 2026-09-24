@@ -71,11 +71,11 @@ USE_ECONOMIC_CALENDAR = True
 # The stations, in order. A channel needing one of its own adds it to STAGES
 # from channels/<name>/nodes.py and names it here; routing is shared.
 PIPELINE = [
-    "dedup_check",
+    "dedup",
     "sorter",
-    "read_article",
-    "place_story",
-    "story_gate",
+    "fetch_article",
+    "story_organizer",
+    "gatekeeper",
     "writer",
     "editor",
     "publish",

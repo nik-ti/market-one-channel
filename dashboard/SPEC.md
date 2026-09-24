@@ -12,7 +12,7 @@ A fully functional, responsive dashboard deployed to Vercel that:
 - Shows all active and completed stories with their item counts and current state
 - Displays statistics: posts by source, gate/sorter outcomes (published/rejected/low_impact/duplicates), story metrics
 - Renders the LangGraph as an interactive SVG showing all nodes and edges
-- Shows the system prompt for each node (place_story, should_post, writer, editor, etc.)
+- Shows the system prompt for each node (story_organizer, should_post, writer, editor, etc.)
 - Works flawlessly on phone (480px width) and desktop (1920px+) with TailwindCSS responsive classes
 - Has 0 external hardcoded IDs; all data flows from the live SQLite database via API
 - Logs and handles network failures gracefully (shows "API offline" if VPS is unreachable)

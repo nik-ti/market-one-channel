@@ -5,22 +5,29 @@ says where an item can go next.
 
 THE SHAPE
 
-    START → dedup_check
-               ├─ duplicate ─────────────────────────────────────────► END
-               └─ new ──► sorter
-                            ├─ irrelevant / low_impact / retry ──────► END
-                            └─ passes ──► place_story ──► story_gate
-                                                            ├─ hold ─► END
-                                                            └─ post ─► writer
-                                                                         │
-    ┌─── rewrite (once) ───────────────────────────────────────────┐     ▼
-    └──────────────────────────────────────────────────────────► editor
+    START → dedup
+              ├─ duplicate ───────────────────────────────────────► END
+              └─ new ──► sorter
+                           ├─ irrelevant / low_impact / retry ────► END
+                           └─ passes ──► fetch_article
+                                              │
+                                              ▼
+                                       story_organizer ──► gatekeeper
+                                                             ├─ hold ─► END
+                                                             └─ post ─► writer
+                                                                          │
+    ┌─── rewrite (once) ────────────────────────────────────────────┐     ▼
+    └───────────────────────────────────────────────────────────► editor
                                                     ├─ declined ──────► END
                                                     └─ approved ─► publish ─► END
 
+The order is the channel's, not this file's: it comes from PIPELINE in
+channels/<name>/profile.py, so a channel can add a station of its own without
+the shared machinery growing a flag for it.
+
 Placement runs on every round, even when the pacing limits forbid posting: an
 item that expires before it is filed takes its content out of its story with it.
-Those rounds stop at place_story and leave the item queued, and the next round
+Those rounds stop at story_organizer and leave the item queued, and the next round
 resumes its story without paying for the placement again.
 
 The unit of work is the story, not the item. An item that reaches the gate and
@@ -63,7 +70,7 @@ class BrainState(TypedDict, total=False):
     sweep: bool                 # a roundup: the item was judged once already,
                                 # skip straight to its story and the gate
 
-    # The live Story object, rebuilt from the database by place_story. It MUST
+    # The live Story object, rebuilt from the database by story_organizer. It MUST
     # be declared here: LangGraph silently drops any state key the schema does
     # not name, and an undeclared story reaches the gate as a KeyError.
     story: Any

@@ -49,14 +49,14 @@ CONFIG_PATH = ROOT_DIR / "config.py"
 ENV_PATH = paths.ENV_PATH
 
 # PIPELINE station name -> the LLM node id it shows up as here. Stations with
-# no entry (read_article, publish, or anything a channel adds of its own)
+# no entry (fetch_article, publish, or anything a channel adds of its own)
 # have no dedicated model/prompt in this dashboard and are left out of the
 # node list, same as before this became channel-aware.
 STATION_TO_NODE: dict[str, str] = {
-    "dedup_check": "judge",
+    "dedup": "dedup_judge",
     "sorter": "sorter",
-    "place_story": "place_story",
-    "story_gate": "gate",
+    "story_organizer": "story_organizer",
+    "gatekeeper": "gatekeeper",
     "writer": "writer",
     "editor": "editor",
 }
@@ -66,19 +66,19 @@ STATION_TO_NODE: dict[str, str] = {
 # (nodes/dedup.py calls judge.execute_three_way) — the binary SYSTEM prompt
 # is legacy, kept only for tools/check_dedup.py.
 PROMPT_SOURCES: dict[str, tuple[str, str]] = {
-    "judge": ("judge.py", "SYSTEM_THREE_WAY"),
-    "place_story": ("stories.py", "PLACE_SYSTEM"),
-    "gate": ("stories.py", "GATE_SYSTEM"),
+    "dedup_judge": ("judge.py", "SYSTEM_THREE_WAY"),
+    "story_organizer": ("stories.py", "PLACE_SYSTEM"),
+    "gatekeeper": ("stories.py", "GATE_SYSTEM"),
     "writer": ("writer.py", "PROMPT"),
     "editor": ("editor.py", "PROMPT"),
 }
 
 # node_name -> config.py variable name that holds the model it runs on.
 MODEL_VARS: dict[str, str] = {
-    "judge": "JUDGE_MODEL",
+    "dedup_judge": "JUDGE_MODEL",
     "sorter": "SORTER_MODEL",
-    "place_story": "STORY_MODEL",
-    "gate": "STORY_MODEL",
+    "story_organizer": "STORY_MODEL",
+    "gatekeeper": "STORY_MODEL",
     "writer": "WRITER_MODEL",
     "editor": "EDITOR_MODEL",
     "embeddings": "EMBEDDING_MODEL",
@@ -90,24 +90,24 @@ FALLBACK_MODEL_VARS: dict[str, str] = {
 }
 
 LABELS: dict[str, str] = {
-    "judge": "Dedup / Judge",
+    "dedup_judge": "Dedup judge",
     "sorter": "Sorter",
-    "place_story": "Place story",
-    "gate": "Story gate",
+    "story_organizer": "Story organizer",
+    "gatekeeper": "Gatekeeper",
     "writer": "Writer",
     "editor": "Editor",
     "embeddings": "Embeddings",
 }
 
 DESCRIPTIONS: dict[str, str] = {
-    "judge": "Rules on two look-alike stories — same event, a continuation, or "
+    "dedup_judge": "Rules on two look-alike stories — same event, a continuation, or "
              "different — the deciding step behind duplicate check 5.",
     "sorter": "Scores every incoming item 1-5 for market impact and picks its "
               "topic — the only node that decides if something is worth "
               "covering at all.",
-    "place_story": "Decides which running story a new item joins, or starts a "
+    "story_organizer": "Decides which running story a new item joins, or starts a "
                    "new one.",
-    "gate": "Decides whether a story has moved enough since its last post to "
+    "gatekeeper": "Decides whether a story has moved enough since its last post to "
             "publish again.",
     "writer": "Rewrites the story into the channel's one house style.",
     "editor": "Reads the finished post against its source and approves or "
@@ -118,14 +118,15 @@ DESCRIPTIONS: dict[str, str] = {
 }
 
 # Fallback display order, used only if a profile's PIPELINE can't be parsed.
-NODE_ORDER = ["judge", "sorter", "place_story", "gate", "writer", "editor", "embeddings"]
+NODE_ORDER = ["dedup_judge", "sorter", "story_organizer", "gatekeeper",
+              "writer", "editor", "embeddings"]
 
 
 def _node_order_for(channel: str) -> list[str]:
     """This channel's PIPELINE, translated into the LLM node ids above, in
     the order items actually flow through them. Embeddings isn't a PIPELINE
     station — it's the sub-step check 4 of dedup runs before the judge ever
-    sees a pair — so it's appended whenever dedup_check (-> judge) is present,
+    sees a pair — so it's appended whenever dedup (-> judge) is present,
     same placement the dashboard has always shown it at."""
     stations = pipeline.channel_pipeline(channel)
     order: list[str] = []
@@ -135,7 +136,7 @@ def _node_order_for(channel: str) -> list[str]:
             order.append(node_id)
     if not order:
         return list(NODE_ORDER)
-    if "judge" in order:
+    if "dedup_judge" in order:
         order.append("embeddings")
     return order
 

@@ -46,7 +46,7 @@ export function Header({
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-primary px-4 py-3">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-base font-semibold text-ink-primary">Market One</span>
+        <span className="shrink-0 text-base font-semibold text-ink-primary">Simple Flow Channels</span>
         <ChannelSwitcher channel={channel} channels={channels} onChange={onChannelChange} />
       </div>
 
@@ -70,7 +70,7 @@ export function Header({
 
         {showHelp && (
           <div className="absolute right-0 top-10 w-64 rounded-md border border-border bg-surface-primary p-3 text-xs text-ink-muted shadow-md">
-            Live monitor over Market One&apos;s news channels. Pick a channel above;
+            Live monitor over the Simple Flow news channels. Pick a channel above;
             data refreshes every 10 seconds from that channel&apos;s own database.
           </div>
         )}

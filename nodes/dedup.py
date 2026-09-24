@@ -301,7 +301,7 @@ async def classify(item, *, with_meaning: bool = True,
                    persist: bool = True) -> tuple[str, int | None, float]:
     """Run checks 3 and 4 and return the verdict, without setting statuses.
 
-    What the brain's dedup_check node calls. Two answers: duplicate, or not.
+    What the brain's dedup node calls. Two answers: duplicate, or not.
     """
     wording_id, _ = check_wording(item["id"], item["title"] or "", item.get("norm_title") or "")
     if wording_id is not None:

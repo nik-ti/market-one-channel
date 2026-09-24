@@ -3,8 +3,7 @@ node (last invocation time, error count) read from the DB every request.
 
 The node list is built from the requested channel's own PIPELINE (see
 pipeline.py), not a fixed list — a channel can declare stations the other
-does not have. "dedup_check" and "story_gate" are shown under their shorter,
-long-standing display names (dedup / gate); everything else keeps its
+does not have. long-standing display names (dedup / gate); everything else keeps its
 PIPELINE name. Nodes this dashboard has no dedicated health query for report
 zero errors and an unknown last invocation rather than raising.
 
@@ -27,7 +26,8 @@ router = APIRouter()
 
 # PIPELINE station name -> the id this graph has always shown it under.
 # Anything not listed here keeps its PIPELINE name as-is.
-_DISPLAY_NAME = {"dedup_check": "dedup", "story_gate": "gate"}
+# Stations are shown under the names the channel gives them in PIPELINE.
+_DISPLAY_NAME: dict[str, str] = {}
 
 
 def _graph_node_ids(channel: str) -> list[str]:
@@ -71,12 +71,12 @@ def _known_node_health(node_id: str, channel: str) -> dict | None:
         }
     if node_id == "sorter":
         return {"last_invocation": _max_value("items", "updated_at", channel=channel), "error_count": 0}
-    if node_id == "read_article":
+    if node_id == "fetch_article":
         return {
             "last_invocation": _max_value("items", "updated_at", "WHERE article_text != ''", channel=channel),
             "error_count": 0,
         }
-    if node_id == "place_story":
+    if node_id == "story_organizer":
         return {
             "last_invocation": _max_value("items", "updated_at", "WHERE story_id IS NOT NULL", channel=channel),
             "error_count": _sum_counter("story_place_failed", channel=channel),

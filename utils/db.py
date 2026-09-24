@@ -618,7 +618,19 @@ def log_dedup_hit(
 
     Called for drops AND for near-misses that a guard rescued, so the filter can
     be reviewed later with tools/stats.py.
+
+    Never raises. This is evidence, not the decision — the decision has already
+    been made by the time it is written. Losing a row of it to a database that
+    is briefly busy is a real cost, which is why it is logged loudly, but it is
+    a smaller one than losing the news item this was recorded about.
     """
+    try:
+        _log_dedup_hit(item_id, matched_item_id, rung, score, kept, detail)
+    except sqlite3.OperationalError as error:
+        logger.warning("Dedup evidence for item %s not recorded: %s", item_id, error)
+
+
+def _log_dedup_hit(item_id, matched_item_id, rung, score, kept, detail) -> None:
     conn().execute(
         """
         INSERT INTO dedup_hits (item_id, matched_item_id, rung, score, kept, detail, created_at)

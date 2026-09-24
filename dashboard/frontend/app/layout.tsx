@@ -19,8 +19,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Market One Dashboard",
-  description: "Live monitoring dashboard over Market One's news channels",
+  title: "Simple Flow Channels",
+  description: "Live monitor over the Simple Flow news channels",
 };
 
 export default function RootLayout({
