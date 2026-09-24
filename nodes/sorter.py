@@ -128,11 +128,20 @@ purpose: it is the difference between a channel worth subscribing to and a wire 
       between significant states. A top-20 exchange, bank, or stablecoin failing. A landmark
       regulatory ruling that changes what is legal. Sovereign default. Sanctions on a major economy.
 
-      HOW MUCH OF THE WORLD REPRICES decides the score for economic data and policy. US data —
-      CPI, payrolls, the Fed — reprices everything, and is a 5 or a 4. The eurozone, China and
+      HOW MUCH OF THE WORLD REPRICES decides the score for economic data and policy. US data
+      reprices everything, and is a 5 or a 4: CPI, payrolls, the Fed, and equally PCE, PPI,
+      retail sales, GDP, jobless claims and the rest. THAT LIST IS EXAMPLES, NOT A GATE — an
+      American release does not become minor by being absent from it. The eurozone, China and
       Japan reprice a large region: a 4 for their headline releases. Any other single economy's
       inflation, jobs, GDP or rate decision reprices its own currency and little else: a 3, even
       when the number surprises. Canada's inflation is a 3. Australia's rate decision is a 3.
+
+      "ANY OTHER SINGLE ECONOMY" MEANS ANOTHER COUNTRY. It never means the United States. Some
+      minor US releases do deserve a 3, but for a different reason, and the reason you write is
+      read by a human:
+
+        M2 money supply at a record   → 3, because "the level of M2 does not move the rate path"
+        M2 money supply at a record   → NOT "a single country's domestic data" — it is US data
       France's 10-year yield on its own is a 3 — unless it is part of a wider move already
       being followed, in which case it is that story continuing, which is also a 3.
 
