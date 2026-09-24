@@ -313,7 +313,13 @@ SCHEMA = {
     "required": ["relevant", "topic", "market", "importance", "reason"],
     "properties": {
         "relevant": {"type": "boolean"},
-        "topic": {"type": "string", "enum": ["crypto", "geopolitics", "other"]},
+        # "markets" MUST be here. The prompt defines it, config.VALID_TOPICS
+        # expects it, and it is this channel's main subject — but it was missing
+        # from this enum, and strict mode means the provider enforces the enum.
+        # So every bond yield, central bank and currency story had two ways out:
+        # call itself "crypto" and be killed by the editor for WRONG_TOPIC, or
+        # answer "other" and be marked irrelevant on sight by the rule below.
+        "topic": {"type": "string", "enum": ["crypto", "markets", "geopolitics", "other"]},
         "market": {"type": "string", "enum": list(MARKETS)},
         "importance": {"type": "integer", "minimum": 1, "maximum": 5},
         "reason": {"type": "string"},
