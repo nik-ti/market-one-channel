@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-PROJECT_DIR="/home/nikita/systems/market-one-channel"
+PROJECT_DIR="/home/nikita/systems/news-channels"
 SERVICE_NAME="market-one-channel"
 OLD_SERVICE_NAME="news-channel"
 

@@ -122,6 +122,9 @@ export function GraphViewer({ channel }: { channel: string }) {
           {selectedNode ? (
             <div className="rounded-lg border border-border bg-surface-primary p-4 text-sm">
               <p className="font-semibold text-ink-primary">{selectedNode.label}</p>
+              {selectedNode.description && (
+                <p className="text-ink-muted">{selectedNode.description}</p>
+              )}
               <p className="text-ink-muted">Health: {selectedNode.health}</p>
               <p className="text-ink-muted">Last invocation: {formatTime(selectedNode.last_invocation)}</p>
               <p className="text-ink-muted">Error count: {selectedNode.error_count}</p>

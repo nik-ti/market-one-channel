@@ -29,6 +29,19 @@ router = APIRouter()
 # Stations are shown under the names the channel gives them in PIPELINE.
 _DISPLAY_NAME: dict[str, str] = {}
 
+# What each station is called and what it does, for the diagram. A station a
+# channel adds of its own falls back to its id with the underscores removed.
+_STATION_INFO: dict[str, tuple[str, str]] = {
+    "dedup": ("Dedup", "Have we already covered this? Five checks, ending in an LLM that reads both texts."),
+    "sorter": ("Sorter", "Is it worth posting at all? Scores 1-5; the bar is 4."),
+    "fetch_article": ("Fetch article", "Follows the link and reads the full article, so the post is more than a headline."),
+    "story_organizer": ("Story organizer", "Which running story does this join, or does it open a new one?"),
+    "gatekeeper": ("Gatekeeper", "Has the story moved? Post, hold, or this is the wrong story."),
+    "writer": ("Writer", "Writes the post in the channel's voice."),
+    "editor": ("Editor", "Checks the finished post against its source. The one station that fails closed."),
+    "publish": ("Publish", "Sends it to Telegram and books it against its story."),
+}
+
 
 def _graph_node_ids(channel: str) -> list[str]:
     stations = pipeline.channel_pipeline(channel)
@@ -115,7 +128,8 @@ def get_graph(channel: str | None = Query(default=None, description="Which chann
         nodes.append(
             {
                 "id": node_id,
-                "label": node_id.replace("_", " "),
+                "label": _STATION_INFO.get(node_id, (node_id.replace("_", " "), ""))[0],
+                "description": _STATION_INFO.get(node_id, ("", ""))[1],
                 "last_invocation": health["last_invocation"],
                 "error_count": health["error_count"],
                 "health": _health(health["error_count"]),

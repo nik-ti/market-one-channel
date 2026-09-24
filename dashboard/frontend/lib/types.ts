@@ -78,6 +78,7 @@ export interface StatsResponse {
 export interface GraphNode {
   id: string;
   label: string;
+  description: string;
   last_invocation: string | null;
   error_count: number;
   health: "ok" | "degraded" | "error";

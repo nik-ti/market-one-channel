@@ -24,12 +24,12 @@ Wants=network-online.target
 Type=simple
 User=nikita
 Group=nikita
-WorkingDirectory=/home/nikita/systems/market-one-channel/dashboard/backend
+WorkingDirectory=/home/nikita/systems/news-channels/dashboard/backend
 
 # Bound to localhost on purpose: nginx is the only thing that should reach it,
 # and it forwards /api/dashboard/v1 here. Listening on 0.0.0.0 would also open
 # port 8000 to the whole internet, bypassing nginx entirely.
-ExecStart=/home/nikita/systems/market-one-channel/dashboard/backend/venv/bin/uvicorn \
+ExecStart=/home/nikita/systems/news-channels/dashboard/backend/venv/bin/uvicorn \
     main:app --host 127.0.0.1 --port 8000
 
 Restart=always
@@ -39,8 +39,8 @@ RestartSec=10
 Environment=DASHBOARD_TOKEN=QxBMlb_UWbFF_Bex16BN44EILE_dkQfxOVbKEyVWGwY
 Environment=PYTHONUNBUFFERED=1
 
-StandardOutput=append:/home/nikita/systems/market-one-channel/logs/m1-dashboard-api.log
-StandardError=append:/home/nikita/systems/market-one-channel/logs/m1-dashboard-api.log
+StandardOutput=append:/home/nikita/systems/news-channels/logs/m1-dashboard-api.log
+StandardError=append:/home/nikita/systems/news-channels/logs/m1-dashboard-api.log
 
 # This box is shared with the trading bots. A runaway process here must not
 # take them down with it.

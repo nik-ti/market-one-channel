@@ -29,7 +29,7 @@ A fully functional, responsive dashboard deployed to Vercel that:
 
 ## FORMAT
 
-### Directory structure in `/home/nikita/systems/market-one-channel/`
+### Directory structure in `/home/nikita/systems/news-channels/`
 
 ```
 market-one-channel/
@@ -83,9 +83,9 @@ market-one-channel/
 **Backend:** Systemd service on VPS (add to `/etc/systemd/system/market-one-dashboard.service`)
 ```
 [Service]
-ExecStart=/usr/bin/python3 /home/nikita/systems/market-one-channel/dashboard/backend/main.py
+ExecStart=/usr/bin/python3 /home/nikita/systems/news-channels/dashboard/backend/main.py
 Restart=always
-WorkingDirectory=/home/nikita/systems/market-one-channel/dashboard/backend
+WorkingDirectory=/home/nikita/systems/news-channels/dashboard/backend
 ```
 
 Listens on `http://localhost:8000`. Nginx proxy at the VPS routes `/api/dashboard/v1/*` → `http://localhost:8000/api/v1/*`.

@@ -44,5 +44,5 @@ All under `/api/v1`, GET only:
 
 ## Deploying (VPS, systemd)
 
-See `/home/nikita/systems/market-one-channel/SPEC.md` for the
+See `/home/nikita/systems/news-channels/SPEC.md` for the
 `market-one-dashboard.service` unit. It runs `run.sh` from this directory.

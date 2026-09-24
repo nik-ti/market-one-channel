@@ -15,7 +15,7 @@
 #   copies the contents away and empties the original in place, which works with
 #   a file that is being held open.
 
-/home/nikita/systems/market-one-channel/logs/*.log {
+/home/nikita/systems/news-channels/logs/*.log {
     weekly
     maxsize 50M
     rotate 4
