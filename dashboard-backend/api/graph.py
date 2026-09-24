@@ -2,7 +2,7 @@
 node (last invocation time, error count) read from the DB every request.
 
 The node order matches nodes/collect_loop.py and nodes/publish_loop.py:
-dedup -> sorter -> place_story -> gate -> writer -> editor -> publish.
+dedup -> sorter -> read_article -> place_story -> gate -> writer -> editor -> publish.
 This list is the only "static" part; everything else (times, error counts,
 status) is computed fresh on each call, so a poll always reflects the
 current DB state (see SPEC FAILURE #13).
@@ -19,7 +19,8 @@ from db_connector import query, query_one
 
 router = APIRouter()
 
-NODES = ["dedup", "sorter", "place_story", "gate", "writer", "editor", "publish"]
+NODES = ["dedup", "sorter", "read_article", "place_story", "gate", "writer",
+         "editor", "publish"]
 EDGES = list(zip(NODES, NODES[1:]))
 
 
@@ -56,6 +57,10 @@ def get_graph():
         },
         "sorter": {
             "last_invocation": _max_value("items", "updated_at"),
+            "error_count": 0,
+        },
+        "read_article": {
+            "last_invocation": _max_value("items", "updated_at", "WHERE article_text != ''"),
             "error_count": 0,
         },
         "place_story": {
