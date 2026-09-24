@@ -18,10 +18,25 @@ SCHEMA_PATH = HERE / "schema.sql"
 _ENV = dotenv_values(HERE / ".env")
 
 
+# Set once the active channel is known, a few lines below. Until then lookups
+# are unprefixed, which is how CHANNEL itself gets read.
+_PREFIX = ""
+
+
 def _get(name: str, default: str = "") -> str:
-    """Read a setting from .env, then the environment, then the default."""
-    value = _ENV.get(name) or os.environ.get(name)
-    return (value if value is not None else default).strip()
+    """Read a setting, preferring this channel's own value.
+
+    MAX_POSTS_PER_HOUR is shared by every channel; MARKETS_MAX_POSTS_PER_HOUR
+    belongs to one. Without that, a second channel silently inherits the first
+    one's pacing with no way to say otherwise.
+    """
+    for key in ((_PREFIX + name) if _PREFIX else "", name):
+        if not key:
+            continue
+        value = _ENV.get(key) or os.environ.get(key)
+        if value is not None:
+            return value.strip()
+    return default.strip()
 
 
 def _get_int(name: str, default: int) -> int:
@@ -61,6 +76,7 @@ def _get_bool(name: str, default: bool) -> bool:
 # CHANNEL in their .env or unit file.
 
 CHANNEL = _get("CHANNEL", "markets")
+_PREFIX = CHANNEL.upper() + "_"
 
 try:
     _profile = __import__(f"channels.{CHANNEL}.profile", fromlist=["profile"])
