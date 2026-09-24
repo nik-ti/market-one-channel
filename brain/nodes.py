@@ -88,7 +88,8 @@ async def dedup_check(state: dict) -> dict[str, Any]:
     item = state["item"]
     if state.get("sweep"):
         return {}          # judged when it first arrived
-    verdict, matched_id, score = await dedup.classify(item, with_meaning=True)
+    verdict, matched_id, score = await dedup.classify(
+        item, with_meaning=True, persist=not state.get("dry_run", False))
 
     if verdict != "duplicate":
         return {}
@@ -454,3 +455,20 @@ async def publish_node(state: dict) -> dict[str, Any]:
         )
 
     return {"outcome": "published" if sent else "retry"}
+
+
+# The stations this codebase provides, and how each one routes onward.
+# "next" means the following stage in the channel's PIPELINE, "end" stops the
+# item. A channel that needs a station of its own adds it to this mapping from
+# its channels/<name>/nodes.py, then names it in its PIPELINE.
+STAGES: dict[str, tuple] = {
+    "dedup_check":  (dedup_check,       route_after_dedup,  {"drop": "end", "sort": "next"}),
+    "sorter":       (sorter_node,       route_after_sorter, {"place": "next", "end": "end"}),
+    "read_article": (read_article_node, None,               {}),
+    "place_story":  (place_story_node,  route_after_place,  {"gate": "next", "end": "end"}),
+    "story_gate":   (story_gate_node,   route_after_gate,   {"write": "next", "end": "end"}),
+    "writer":       (writer_node,       route_after_writer, {"edit": "next", "end": "end"}),
+    "editor":       (editor_node,       route_after_editor,
+                     {"publish": "next", "rewrite": "writer", "end": "end"}),
+    "publish":      (publish_node,      None,               {}),
+}

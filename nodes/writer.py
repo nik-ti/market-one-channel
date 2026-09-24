@@ -474,7 +474,7 @@ async def execute(item, has_image: bool = False, editor_feedback: str = "",
     `editor_feedback` carries the rejection reason from the rewrite loop.
     `recent_posts` are the channel's last posts. `brief` is the editor's
     instruction for this post: what is new and what the reader already has. `persona` is
-    brain/persona.md.
+    channels/<name>/persona.md.
     """
 
     title = item["title"] or ""

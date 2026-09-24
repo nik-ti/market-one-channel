@@ -154,7 +154,8 @@ def check_wording(item_id: int, title: str, norm_title: str) -> tuple[int | None
     return matched_id, score
 
 
-async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | None, float]:
+async def check_meaning(item, item_norm_title: str = "", *,
+                        persist: bool = True) -> tuple[str, int | None, float]:
     """Return (verdict, matched_item_id, score) for this item against recent ones.
 
     verdict is duplicate | different. This step does not decide duplicates on
@@ -185,8 +186,11 @@ async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | Non
 
     _record_meaning_success()
 
-    blob = embeddings.to_blob(vector)
-    db.set_item_embedding(item_id, blob)
+    # Caching the vector is the only write this check makes, and a rehearsal
+    # must not make it: the live service holds the database, so the write fails
+    # and takes the whole dry run down with it.
+    if persist:
+        db.set_item_embedding(item_id, embeddings.to_blob(vector))
 
     candidates = db.recent_embeddings(
         config.COSINE_WINDOW_HOURS,
@@ -293,7 +297,8 @@ async def check_meaning(item, item_norm_title: str = "") -> tuple[str, int | Non
     return "different", None, 0.0
 
 
-async def classify(item, *, with_meaning: bool = True) -> tuple[str, int | None, float]:
+async def classify(item, *, with_meaning: bool = True,
+                   persist: bool = True) -> tuple[str, int | None, float]:
     """Run checks 3 and 4 and return the verdict, without setting statuses.
 
     What the brain's dedup_check node calls. Two answers: duplicate, or not.
@@ -305,7 +310,8 @@ async def classify(item, *, with_meaning: bool = True) -> tuple[str, int | None,
         return "duplicate", wording_id, 100.0
     if not with_meaning:
         return "different", None, 0.0
-    return await check_meaning(item, item_norm_title=item.get("norm_title") or "")
+    return await check_meaning(item, item_norm_title=item.get("norm_title") or "",
+                               persist=persist)
 
 
 async def execute(item, *, with_meaning: bool = True) -> bool:

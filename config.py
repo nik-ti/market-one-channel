@@ -13,9 +13,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 HERE = Path(__file__).resolve().parent
-DB_PATH = HERE / "data" / "news.db"
 SCHEMA_PATH = HERE / "schema.sql"
-LOG_PATH = HERE / "logs" / "market-one-channel.log"
 
 _ENV = dotenv_values(HERE / ".env")
 
@@ -53,65 +51,61 @@ def _get_bool(name: str, default: bool) -> bool:
 
 
 # =============================================================================
+# WHICH CHANNEL THIS PROCESS IS
+# =============================================================================
+# Everything below this line is machinery, shared by every channel. What makes
+# a channel itself — its sources, its voice, what it considers important, its
+# pipeline — lives in channels/<name>/ and is loaded here.
+#
+# Two channels run as two services from this one codebase, told apart by
+# CHANNEL in their .env or unit file.
+
+CHANNEL = _get("CHANNEL", "markets")
+
+try:
+    _profile = __import__(f"channels.{CHANNEL}.profile", fromlist=["profile"])
+except ImportError as error:  # pragma: no cover - a typo here must be loud
+    raise SystemExit(
+        f"CHANNEL is '{CHANNEL}' but channels/{CHANNEL}/profile.py could not be "
+        f"loaded: {error}\nChannels available: "
+        f"{', '.join(sorted(p.parent.name for p in HERE.glob('channels/*/profile.py')))}"
+    ) from error
+
+CHANNEL_NAME = _profile.NAME
+
+# Each channel keeps its own database. Sharing one would let a second channel's
+# items into this one's duplicate check and story layer, which both ask
+# "what else has been in here recently".
+DB_PATH = HERE / "data" / _profile.DB_FILENAME
+LOG_PATH = HERE / "logs" / _profile.LOG_FILENAME
+
+SOURCES = _profile.SOURCES
+X_ACCOUNTS = _profile.X_ACCOUNTS
+NO_MEDIA_SOURCES = _profile.NO_MEDIA_SOURCES
+VALID_TOPICS = _profile.VALID_TOPICS
+PERSONA_PATH = _profile.PERSONA_PATH
+TOPICS = _profile.TOPICS
+MARKETS = _profile.MARKETS
+RUBRIC_PATH = _profile.RUBRIC_PATH
+PIPELINE = _profile.PIPELINE
+USE_ECONOMIC_CALENDAR = getattr(_profile, "USE_ECONOMIC_CALENDAR", False)
+
+
+# =============================================================================
 # SECRETS (from .env)
 # =============================================================================
 
-TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN")
-CHANNEL_ID = _get("CHANNEL_ID")          # "@name" or "-100..."
+# Which .env keys hold them is the channel's business: a second channel posts
+# somewhere else, under its own bot.
+TELEGRAM_BOT_TOKEN = _get(_profile.BOT_TOKEN_KEY)
+CHANNEL_ID = _get(_profile.CHANNEL_ID_KEY)   # "@name" or "-100..."
 ERROR_CHAT_ID = _get("ERROR_CHAT_ID")    # your DM, for error alerts
 OPENROUTER_API_KEY = _get("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = _get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 
-# =============================================================================
-# FEEDS  ← edit this list
-# =============================================================================
-# name  = short nickname, must be unique
-# topic = "crypto", "markets" or "geopolitics" (the AI can override it)
-#
-# After changing this, run: python3 tools/check_sources.py
-
-SOURCES = [
-    # ── Crypto ──
-    {"name": "coindesk",       "topic": "crypto", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
-    {"name": "theblock",       "topic": "crypto", "url": "https://www.theblock.co/rss.xml"},
-    {"name": "protos",         "topic": "crypto", "url": "https://protos.com/feed"},
-    {"name": "glassnode_research", "topic": "crypto", "url": "https://research.glassnode.com/rss/"},
-    {"name": "unchained",      "topic": "crypto", "url": "https://unchainedcrypto.com/feed/"},
-    {"name": "therage",        "topic": "crypto", "url": "https://www.therage.co/rss/"},
-
-    # ── Geopolitics ──
-    {"name": "guardian_world", "topic": "geopolitics", "url": "https://www.theguardian.com/world/rss"},
-
-]
 
 
-# =============================================================================
-# X ACCOUNTS  ← edit this list
-# =============================================================================
-# Adding an account needs BOTH:
-#   1. /home/nikita/trading/infra/tweet-relay/accounts.txt  (then restart tweet-relay)
-#   2. this dictionary
-# Removing it from here alone mutes it for this channel only.
-
-# Accounts whose pictures and clips are never used. Their text is fine; what
-# they attach is branding, charts with their logo, or memes.
-NO_MEDIA_SOURCES = {"crypto_banter"}
-
-# The topic is only a HINT; the sorter decides. It matters because the hint is
-# the fallback when the sorter cannot be reached.
-X_ACCOUNTS = {
-    "WatcherGuru":   "crypto",
-    "crypto_banter": "crypto",
-    "TreeNewsFeed":  "crypto",
-    "BLS_gov":       "markets",      # payrolls, CPI — the data itself, not politics
-
-    # Added 28 Aug 2026, all four already tracked by the relay.
-    "glassnode":     "crypto",       # on-chain analytics
-    "BullTheoryio":  "markets",      # indices, FX, yields, the Fed, some crypto
-    "DeItaone":      "markets",      # Walter Bloomberg — central banks, results
-    "Barchart":      "markets",      # equities, metals, commodities
-}
 
 
 # =============================================================================
@@ -161,7 +155,6 @@ BULLET = "▪️"
 # "markets" was added 28 Aug 2026. Widening the topic is NOT lowering the bar:
 # the market-impact test in nodes/sorter.py is unchanged and still does the
 # filtering. Such a story is now allowed to be judged, not refused a hearing.
-VALID_TOPICS = ("crypto", "markets", "geopolitics")
 
 # Short sources — typically an X post of a few sentences — become BRIEF posts:
 # kept much shorter, because there is nothing to pad a longer post with except
@@ -179,7 +172,7 @@ BRIEF_SOURCE_CHARS = _get_int("BRIEF_SOURCE_CHARS", 400)
 #   5 = only the biggest events        4 = market-moving news (recommended)
 #   3 = ordinary news too              1 = everything
 # The scale is defined in nodes/sorter.py — change both together.
-MIN_IMPORTANCE = _get_int("MIN_IMPORTANCE", 4)
+MIN_IMPORTANCE = _get_int("MIN_IMPORTANCE", _profile.MIN_IMPORTANCE)
 
 
 # =============================================================================
@@ -337,7 +330,6 @@ JUDGE_TIMEOUT_SECONDS = _get_int("JUDGE_TIMEOUT_SECONDS", 40)
 
 # The channel's voice, prepended to the writer's system prompt. A missing file
 # just means the writer's built-in generic prompt.
-PERSONA_PATH = HERE / "brain" / "persona.md"
 
 # Recent posts the writer sees as voice examples: enough to catch the rhythm
 # without bloating the prompt.

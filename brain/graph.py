@@ -38,7 +38,15 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+import config
 from brain import nodes
+
+# A channel may ship stations of its own. Most do not, so this is optional.
+try:
+    channel_nodes = __import__(f"channels.{config.CHANNEL}.nodes",
+                               fromlist=["nodes"])
+except ImportError:
+    channel_nodes = None
 
 
 class BrainState(TypedDict, total=False):
@@ -75,41 +83,43 @@ class BrainState(TypedDict, total=False):
 
 
 def build_graph():
-    """Wire the stations together and compile the graph."""
+    """Wire this channel's stations together and compile the graph.
+
+    The order comes from the channel's PIPELINE, so a channel can add a station
+    of its own — one that reads the images a post carries, say — without the
+    shared machinery growing a flag for it.
+    """
     builder = StateGraph(BrainState)
+    pipeline = list(config.PIPELINE)
+    stages = dict(nodes.STAGES)
+    stages.update(getattr(channel_nodes, "STAGES", {}))
 
-    builder.add_node("dedup_check", nodes.dedup_check)
-    builder.add_node("sorter", nodes.sorter_node)
-    builder.add_node("read_article", nodes.read_article_node)
-    builder.add_node("place_story", nodes.place_story_node)
-    builder.add_node("story_gate", nodes.story_gate_node)
-    builder.add_node("writer", nodes.writer_node)
-    builder.add_node("editor", nodes.editor_node)
-    builder.add_node("publish", nodes.publish_node)
+    unknown = [s for s in pipeline if s not in stages]
+    if unknown:
+        raise SystemExit(f"{config.CHANNEL}'s PIPELINE names stations that do not "
+                         f"exist: {unknown}. Known: {sorted(stages)}")
 
-    builder.add_edge(START, "dedup_check")
-    builder.add_conditional_edges(
-        "dedup_check", nodes.route_after_dedup, {"drop": END, "sort": "sorter"},
-    )
-    builder.add_conditional_edges(
-        "sorter", nodes.route_after_sorter, {"place": "read_article", "end": END},
-    )
-    builder.add_edge("read_article", "place_story")
-    builder.add_conditional_edges(
-        "place_story", nodes.route_after_place,
-        {"gate": "story_gate", "end": END},
-    )
-    builder.add_conditional_edges(
-        "story_gate", nodes.route_after_gate, {"write": "writer", "end": END},
-    )
-    builder.add_conditional_edges(
-        "writer", nodes.route_after_writer, {"edit": "editor", "end": END},
-    )
-    builder.add_conditional_edges(
-        "editor", nodes.route_after_editor,
-        {"publish": "publish", "rewrite": "writer", "end": END},
-    )
-    builder.add_edge("publish", END)
+    for name in pipeline:
+        builder.add_node(name, stages[name][0])
+    builder.add_edge(START, pipeline[0])
+
+    for position, name in enumerate(pipeline):
+        _, router, routes = stages[name]
+        following = pipeline[position + 1] if position + 1 < len(pipeline) else None
+
+        if router is None:
+            builder.add_edge(name, following or END)
+            continue
+
+        targets = {}
+        for answer, destination in routes.items():
+            if destination == "end":
+                targets[answer] = END
+            elif destination == "next":
+                targets[answer] = following or END
+            else:
+                targets[answer] = destination
+        builder.add_conditional_edges(name, router, targets)
 
     return builder.compile()
 

@@ -1,4 +1,4 @@
-"""Loads the channel voice (brain/persona.md) and recent posts for the writer.
+"""Loads the channel voice (channels/<name>/persona.md) and recent posts for the writer.
 
 The persona file is read once and cached, so a change to it needs a service
 restart to take effect.

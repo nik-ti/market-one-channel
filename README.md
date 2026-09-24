@@ -332,7 +332,7 @@ weekly columns titled *New Ecommerce Tools: July 15* and *July 22*.
   plus the editor checking the finished post against that source. The editor's
   `FACTUAL_DRIFT` rule explicitly covers background the model filled in from its
   own knowledge, even when that background is true.
-- **The voice** comes from `brain/persona.md`, prepended to the writer's prompt.
+- **The voice** comes from `channels/markets/persona.md`, prepended to the writer's prompt.
   That file is where you change how the channel sounds; the factual-accuracy
   rules in `nodes/writer.py` still override anything in it.
 
@@ -482,7 +482,7 @@ restarting the service.
 | No tweets ever arrive | `systemctl status tweet-relay`. Also check the handle is in **both** `accounts.txt` and `X_ACCOUNTS` |
 | Duplicates getting through | **First run `tools/check_dedup.py`** — confirm checks 4-5 are running at all before touching anything. Then `stats.py`: if the pair never reached the judge, lower `COSINE_SHORTLIST` to just under the near-miss score reported. If the judge saw it and said "different", the prompt in `nodes/judge.py` needs the case adding. If `judge_error` is climbing, the model is unreachable and everything is failing open. |
 | Real stories being merged | Look at the `judge` rows in `stats.py` — each records its reason in plain English. Fix the prompt in `nodes/judge.py`, not the floor; raising `COSINE_SHORTLIST` only hides the pair from the one thing that can judge it. |
-| Posts sound wrong | Edit `brain/persona.md`, rehearse with `test_brain.py` |
+| Posts sound wrong | Edit `channels/markets/persona.md`, rehearse with `test_brain.py` |
 | Posts are real news but nobody would trade on them | `nodes/sorter.py`, not the editor. Check `stats.py --dropped --market none` to see what it *is* catching, then tighten the market definitions |
 | The channel has gone quiet | `stats.py --dropped` — if good stories are in that list, the gate is too strict. Loosen the continuing-story test before touching `MIN_IMPORTANCE` |
 

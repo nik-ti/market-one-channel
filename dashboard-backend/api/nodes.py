@@ -41,7 +41,6 @@ ENV_PATH = ROOT_DIR / ".env"
 # is legacy, kept only for tools/check_dedup.py.
 PROMPT_SOURCES: dict[str, tuple[str, str]] = {
     "judge": ("judge.py", "SYSTEM_THREE_WAY"),
-    "sorter": ("sorter.py", "PROMPT"),
     "place_story": ("stories.py", "PLACE_SYSTEM"),
     "gate": ("stories.py", "GATE_SYSTEM"),
     "writer": ("writer.py", "PROMPT"),
@@ -94,6 +93,17 @@ DESCRIPTIONS: dict[str, str] = {
 
 # Display order: the order items actually flow through the pipeline.
 NODE_ORDER = ["judge", "sorter", "place_story", "gate", "writer", "editor", "embeddings"]
+
+
+def _channel_rubric() -> str | None:
+    """The active channel's rubric — see channels/<name>/rubric.md."""
+    env = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+    channel = env.get("CHANNEL") or os.environ.get("CHANNEL") or "markets"
+    path = ROOT_DIR / "channels" / channel / "rubric.md"
+    try:
+        return path.read_text()
+    except OSError:
+        return None
 
 
 def _extract_prompt(file_path: Path, const_name: str) -> str | None:
@@ -153,6 +163,10 @@ def get_nodes():
         if name in PROMPT_SOURCES:
             filename, const_name = PROMPT_SOURCES[name]
             prompt = _extract_prompt(NODES_DIR / filename, const_name)
+        elif name == "sorter":
+            # The sorter's rubric is the one prompt that belongs to the channel
+            # rather than to the machinery, so it lives beside its profile.
+            prompt = _channel_rubric()
 
         model = _resolve_model(MODEL_VARS[name], config_text, env_overrides)
 
