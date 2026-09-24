@@ -87,6 +87,9 @@ _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("calendar_title", "ALTER TABLE items ADD COLUMN calendar_title TEXT DEFAULT ''"),
         ("calendar_forecast", "ALTER TABLE items ADD COLUMN calendar_forecast TEXT DEFAULT ''"),
         ("calendar_previous", "ALTER TABLE items ADD COLUMN calendar_previous TEXT DEFAULT ''"),
+        # The text of the article this item links to, read once and kept, so a
+        # URL is never fetched twice — see nodes/article.py.
+        ("article_text", "ALTER TABLE items ADD COLUMN article_text TEXT DEFAULT ''"),
     ],
 }
 
@@ -388,6 +391,12 @@ def recent_embeddings(
 def set_item_embedding(item_id: int, blob: bytes) -> None:
     """Save an item's meaning-vector so future items can be compared against it."""
     conn().execute("UPDATE items SET embedding = ? WHERE id = ?", (blob, item_id))
+    conn().commit()
+
+
+def set_article_text(item_id: int, text: str) -> None:
+    """Keep the article we read for this item, so its URL is never fetched twice."""
+    conn().execute("UPDATE items SET article_text = ? WHERE id = ?", (text, item_id))
     conn().commit()
 
 

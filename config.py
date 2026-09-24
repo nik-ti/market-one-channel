@@ -436,3 +436,22 @@ def check(require_telegram: bool = False, require_openrouter: bool = False) -> l
         problems.append(f"MIN_IMPORTANCE must be between 1 and 5, not {MIN_IMPORTANCE}")
 
     return problems
+
+# =============================================================================
+# READING THE LINKED ARTICLE
+# =============================================================================
+# 59% of items arrive with a body under 120 characters and a link nobody
+# followed, which is why a post's second line so often just restates its first.
+# See nodes/article.py.
+
+# One request, then extraction. Generous enough for a slow news site, short
+# enough that the publish round does not stall behind one of them.
+ARTICLE_TIMEOUT_SECONDS = _get_int("ARTICLE_TIMEOUT_SECONDS", 15)
+
+# The whole browser attempt, including launch. Only sites that refuse a plain
+# request get here, and a browser that hangs must not hold the round forever.
+ARTICLE_BROWSER_TIMEOUT_SECONDS = _get_int("ARTICLE_BROWSER_TIMEOUT_SECONDS", 60)
+
+# What is kept. The writer is shown the source in full; an entire long-read
+# would crowd out the wire items it is meant to be summarising.
+ARTICLE_MAX_CHARS = _get_int("ARTICLE_MAX_CHARS", 6000)

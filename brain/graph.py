@@ -80,6 +80,7 @@ def build_graph():
 
     builder.add_node("dedup_check", nodes.dedup_check)
     builder.add_node("sorter", nodes.sorter_node)
+    builder.add_node("read_article", nodes.read_article_node)
     builder.add_node("place_story", nodes.place_story_node)
     builder.add_node("story_gate", nodes.story_gate_node)
     builder.add_node("writer", nodes.writer_node)
@@ -91,8 +92,9 @@ def build_graph():
         "dedup_check", nodes.route_after_dedup, {"drop": END, "sort": "sorter"},
     )
     builder.add_conditional_edges(
-        "sorter", nodes.route_after_sorter, {"place": "place_story", "end": END},
+        "sorter", nodes.route_after_sorter, {"place": "read_article", "end": END},
     )
+    builder.add_edge("read_article", "place_story")
     builder.add_conditional_edges(
         "place_story", nodes.route_after_place,
         {"gate": "story_gate", "end": END},

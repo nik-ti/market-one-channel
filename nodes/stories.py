@@ -460,7 +460,11 @@ def as_source(story: Story) -> dict:
     parts = []
     for item in pending:
         head = (item["title"] or "").strip()
-        body = (item["body"] or "").strip()
+        # The article we read beats the wire stub it came from: that is the
+        # whole point of reading it. See nodes/article.py.
+        keys = item.keys() if hasattr(item, "keys") else ()
+        body = ((item["article_text"] if "article_text" in keys else "") or
+                (item["body"] or "")).strip()
         parts.append(f"[{item['source_name']}] {head}\n{body}".strip())
 
     return {

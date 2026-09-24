@@ -19,7 +19,7 @@ from typing import Any
 
 import config
 from brain import persona_loader
-from nodes import dedup, editor, publisher, sorter, stories, writer
+from nodes import article, dedup, editor, publisher, sorter, stories, writer
 from utils import db, logger as log_setup
 
 log = log_setup.get("brain")
@@ -42,6 +42,19 @@ def route_after_dedup(state: dict) -> str:
 
 def route_after_sorter(state: dict) -> str:
     return "end" if state.get("outcome") else "place"
+
+
+async def read_article_node(state: dict) -> dict[str, Any]:
+    """Read the article this item links to, so the writer has more than a headline.
+
+    Runs only on items the sorter kept — there is nothing to gain from reading
+    articles for the ~85% that never get past it. Fails open: no article just
+    means the post is written from the headline, as it was before this node.
+    """
+    if state.get("dry_run") or state.get("sweep"):
+        return {}
+    await article.fetch_for(state["item"])
+    return {}
 
 
 def route_after_place(state: dict) -> str:
