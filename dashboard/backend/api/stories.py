@@ -4,14 +4,20 @@ row itself, matching how nodes/stories.py treats the story as derived data),
 plus the full list of posts (one entry per item attached to the story) so
 the dashboard can show exactly what happened to each piece of news without
 a second round-trip.
+
+Takes an optional ?channel=, resolved by channel_resolver (defaults to
+markets, never .env). A channel with no database yet returns an
+empty-but-valid response with "ready": false instead of an error.
 """
 
 from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
+import paths
+from channel_resolver import resolve_channel
 from db_connector import query
 
 router = APIRouter()
@@ -36,7 +42,12 @@ def _display_status(item_status: str) -> str:
 
 
 @router.get("/stories")
-def get_stories():
+def get_stories(channel: str | None = Query(default=None, description="Which channel's database to read")):
+    name = resolve_channel(channel)
+
+    if not paths.database_ready(name):
+        return {"channel": name, "ready": False, "stories": []}
+
     story_rows = query(
         """
         SELECT
@@ -51,7 +62,8 @@ def get_stories():
                 WHERE i2.story_id = s.id) AS post_count
         FROM stories s
         ORDER BY s.last_item_at DESC
-        """
+        """,
+        channel=name,
     )
 
     # One query for every item belonging to any story, LEFT JOINed to its
@@ -74,7 +86,8 @@ def get_stories():
         LEFT JOIN posts p ON p.item_id = i.id
         WHERE i.story_id IS NOT NULL
         ORDER BY i.id ASC
-        """
+        """,
+        channel=name,
     )
 
     posts_by_story: dict[int, list[dict]] = {}
@@ -108,4 +121,4 @@ def get_stories():
             }
         )
 
-    return {"stories": stories}
+    return {"channel": name, "ready": True, "stories": stories}

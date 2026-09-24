@@ -90,6 +90,10 @@ _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         # The text of the article this item links to, read once and kept, so a
         # URL is never fetched twice — see nodes/article.py.
         ("article_text", "ALTER TABLE items ADD COLUMN article_text TEXT DEFAULT ''"),
+        # Set when a human overrules a rejection from the dashboard. Read by
+        # the publish loop, which then tells the graph to skip the two stations
+        # that judge whether an item is worth posting.
+        ("forced", "ALTER TABLE items ADD COLUMN forced INTEGER DEFAULT 0"),
     ],
 }
 
@@ -392,6 +396,55 @@ def set_item_embedding(item_id: int, blob: bytes) -> None:
     """Save an item's meaning-vector so future items can be compared against it."""
     conn().execute("UPDATE items SET embedding = ? WHERE id = ?", (blob, item_id))
     conn().commit()
+
+
+def force_item(item_id: int, *, was_status: str, was_reason: str, note: str = "") -> None:
+    """Put a rejected item back in the queue because a human disagreed.
+
+    Both halves matter. The item returns to 'queued' with forced set, which is
+    what makes it move again. And the disagreement is written down, because a
+    row saying "the model said no here and a human said yes" is the only
+    honest test case for whether a later change to the prompt actually helped.
+    """
+    connection = conn()
+    with connection:
+        connection.execute(
+            """INSERT INTO overrides (item_id, was_status, was_reason, decision, note, created_at)
+               VALUES (?, ?, ?, 'publish', ?, datetime('now'))""",
+            (item_id, was_status, was_reason, note),
+        )
+        connection.execute(
+            """UPDATE items SET status = 'queued', status_reason = 'forced by a human',
+                                forced = 1, attempts = 0, story_id = NULL
+                WHERE id = ?""",
+            (item_id,),
+        )
+
+
+def unpublish_note(item_id: int, *, note: str = "") -> None:
+    """Record that a published post should not have gone out.
+
+    The other half of the same dataset. Nothing is deleted from Telegram — this
+    is a label, not an action.
+    """
+    row = get_item(item_id)
+    connection = conn()
+    with connection:
+        connection.execute(
+            """INSERT INTO overrides (item_id, was_status, was_reason, decision, note, created_at)
+               VALUES (?, ?, ?, 'should_not_have_posted', ?, datetime('now'))""",
+            (item_id, row["status"] if row else "", row["status_reason"] if row else "", note),
+        )
+
+
+def recent_overrides(limit: int = 100) -> list[sqlite3.Row]:
+    """Every time a human disagreed with the pipeline, newest first."""
+    return list(conn().execute(
+        """SELECT o.*, i.title, i.source_name, i.topic, i.market, i.importance
+             FROM overrides o JOIN items i ON i.id = o.item_id
+            ORDER BY o.id DESC LIMIT ?""",
+        (limit,),
+    ))
 
 
 def set_article_text(item_id: int, text: str) -> None:
@@ -781,11 +834,17 @@ def get_story_posts(story_id: int) -> list[sqlite3.Row]:
     ))
 
 
-def record_story_post(story_id: int, published_item_id: int, summary: str) -> None:
+def record_story_post(story_id: int, published_item_id: int, summary: str,
+                      *, covers_others: bool = True) -> None:
     """Book a story post that has actually gone out.
 
     One post covers several items, so every other item still waiting on this
     story is now covered too and must stop being a candidate for anything.
+
+    covers_others=False for a forced post: the writer was shown that one item
+    on its own, so the rest of the story's held items were NOT covered by it
+    and must stay waiting. Sweeping them into 'merged' here would bury their
+    content behind a post that never mentioned them.
 
     ONLY call this after the send succeeded — it marks items as covered, and
     doing that for a message that never arrived silently buries their content.
@@ -797,6 +856,9 @@ def record_story_post(story_id: int, published_item_id: int, summary: str) -> No
         "UPDATE stories SET last_post_at = ?, summary = ? WHERE id = ?",
         (at, summary[:300], story_id),
     )
+    if not covers_others:
+        conn().commit()
+        return
     conn().execute(
         """
         UPDATE items

@@ -1,23 +1,26 @@
 """Read-only SQLite connector for the dashboard.
 
-Opens the active channel's database in read-only mode (via the sqlite "file:...?mode=ro" URI) so
-the dashboard can never write to it, and every connection gets a busy_timeout
-so a query never hangs while news-channel's own processes are writing to the
-same file — it raises sqlite3.OperationalError instead, which the API layer
-turns into a 503.
+Opens a channel's database in read-only mode (via the sqlite
+"file:...?mode=ro" URI) so the dashboard can never write to it, and every
+connection gets a busy_timeout so a query never hangs while news-channel's own
+processes are writing to the same file — it raises sqlite3.OperationalError
+instead, which the API layer turns into a 503.
+
+Every function here takes an explicit `channel` now — the dashboard serves
+more than one, and there is no longer a single "the database" to default to.
+Callers are expected to check paths.database_ready(channel) first (see
+api/posts.py etc.); calling get_connection() for a channel with no database
+file yet still raises DatabaseUnavailableError, same as before.
 """
 
 from __future__ import annotations
 
 import sqlite3
 import traceback
-from pathlib import Path
-
-import paths
 from typing import Any
 
-# The database this whole dashboard reads. Never written to from here.
-DB_PATH = paths.database_path()
+import paths
+
 
 # How long a single query may wait on a lock before giving up. Keeps a
 # concurrent write from making the dashboard hang instead of failing fast.
@@ -28,17 +31,19 @@ class DatabaseUnavailableError(Exception):
     """Raised when the DB file is missing or a query times out / fails."""
 
 
-def get_connection() -> sqlite3.Connection:
-    """Open a fresh read-only connection. Callers should use it in a `with`
-    block (via query()/query_one() below) so it always gets closed."""
-    if not DB_PATH.exists():
-        raise DatabaseUnavailableError(f"database file not found: {DB_PATH}")
+def get_connection(channel: str | None = None) -> sqlite3.Connection:
+    """Open a fresh read-only connection to `channel`'s database. Callers
+    should use it in a `with` block (via query()/query_one() below) so it
+    always gets closed."""
+    db_path = paths.database_path(channel)
+    if not db_path.exists():
+        raise DatabaseUnavailableError(f"database file not found: {db_path}")
 
     try:
         # mode=ro: the OS/SQLite layer refuses any write, on top of us simply
         # never issuing one. uri=True is required to parse the "file:" form.
         conn = sqlite3.connect(
-            f"file:{DB_PATH}?mode=ro",
+            f"file:{db_path}?mode=ro",
             uri=True,
             timeout=QUERY_TIMEOUT_SECONDS,
             check_same_thread=False,
@@ -54,10 +59,11 @@ def get_connection() -> sqlite3.Connection:
         raise DatabaseUnavailableError(str(exc)) from exc
 
 
-def query(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
-    """Run a SELECT and return a list of plain dicts (JSON-friendly)."""
+def query(sql: str, params: tuple = (), channel: str | None = None) -> list[dict[str, Any]]:
+    """Run a SELECT against `channel`'s database and return a list of plain
+    dicts (JSON-friendly)."""
     try:
-        with get_connection() as conn:
+        with get_connection(channel) as conn:
             cur = conn.execute(sql, params)
             rows = cur.fetchall()
             return [dict(row) for row in rows]
@@ -75,6 +81,6 @@ def query(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
         raise DatabaseUnavailableError(str(exc)) from exc
 
 
-def query_one(sql: str, params: tuple = ()) -> dict[str, Any] | None:
-    rows = query(sql, params)
+def query_one(sql: str, params: tuple = (), channel: str | None = None) -> dict[str, Any] | None:
+    rows = query(sql, params, channel)
     return rows[0] if rows else None

@@ -19,6 +19,8 @@ class PostItem(BaseModel):
 
 
 class PostsResponse(BaseModel):
+    channel: str
+    ready: bool
     items: list[PostItem]
     total: int
     limit: int
@@ -47,6 +49,8 @@ class Story(BaseModel):
 
 
 class StoriesResponse(BaseModel):
+    channel: str
+    ready: bool
     stories: list[Story]
 
 
@@ -68,6 +72,8 @@ class TrendPoint(BaseModel):
 
 
 class StatsResponse(BaseModel):
+    channel: str
+    ready: bool
     sources_count: list[SourceCount]
     gate_outcomes: GateOutcomes
     trends: list[TrendPoint]
@@ -76,6 +82,9 @@ class StatsResponse(BaseModel):
 class GraphNode(BaseModel):
     id: str
     label: str
+    last_invocation: str | None = None
+    error_count: int = 0
+    health: str = "ok"
 
 
 class GraphEdge(BaseModel):
@@ -84,6 +93,8 @@ class GraphEdge(BaseModel):
 
 
 class GraphResponse(BaseModel):
+    channel: str
+    ready: bool
     nodes: list[GraphNode]
     edges: list[GraphEdge]
 
@@ -98,7 +109,19 @@ class NodeInfo(BaseModel):
 
 
 class NodesResponse(BaseModel):
+    channel: str
+    ready: bool
     nodes: list[NodeInfo]
+
+
+class ChannelInfo(BaseModel):
+    id: str
+    name: str
+    ready: bool
+
+
+class ChannelsResponse(BaseModel):
+    channels: list[ChannelInfo]
 
 
 class ErrorResponse(BaseModel):

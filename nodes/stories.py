@@ -486,7 +486,7 @@ def as_source(story: Story) -> dict:
     }
 
 
-def brief_for_writer(story: Story, angle: str) -> str:
+def brief_for_writer(story: Story, angle: str, *, single_item: bool = False) -> str:
     """What the writer is told beyond the source: the reader's memory of this story."""
     parts = []
 
@@ -504,7 +504,9 @@ def brief_for_writer(story: Story, angle: str) -> str:
     if angle:
         parts.append(f"WHAT THIS POST IS FOR:\n{angle}")
 
-    if len(story.pending) > 1:
+    # A forced post is written from one item on its own, so the source is not
+    # the story folded together and must not be described as if it were.
+    if len(story.pending) > 1 and not single_item:
         parts.append(
             f"The source below is {len(story.pending)} wire items about this one "
             "story, put together. Write ONE post covering what they add up to — "

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { EmptyState } from "@/components/EmptyState";
 import { useGraph } from "@/hooks/useApi";
 import type { GraphNode } from "@/lib/types";
 import { WORKFLOW_EXPLANATION } from "@/lib/workflowExplanation";
@@ -47,8 +48,8 @@ function buildDiagram(nodes: GraphNode[]): string {
   return lines.join("\n");
 }
 
-export function GraphViewer() {
-  const { data, isFetching } = useGraph();
+export function GraphViewer({ channel }: { channel: string }) {
+  const { data, isFetching } = useGraph(channel);
   const [selected, setSelected] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -94,35 +95,45 @@ export function GraphViewer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(nodes)]);
 
+  const notReady = data ? !data.ready : false;
+
   return (
     <div className="flex flex-col gap-4 p-4">
       {isFetching && <span className="text-xs text-ink-muted">Refreshing...</span>}
 
-      {nodes.length > 0 && (
-        <p className="text-xs text-ink-muted sm:hidden">Swipe sideways to see the whole pipeline →</p>
-      )}
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface-primary p-4">
-        {renderError ? (
-          <p className="text-sm text-status-rejected">Diagram failed to render: {renderError}</p>
-        ) : (
-          <div
-            ref={containerRef}
-            className="flex min-w-[560px] justify-center [&_svg]:h-auto [&_svg]:max-w-none"
-          />
-        )}
-      </div>
-
-      {selectedNode ? (
-        <div className="rounded-lg border border-border bg-surface-primary p-4 text-sm">
-          <p className="font-semibold text-ink-primary">{selectedNode.label}</p>
-          <p className="text-ink-muted">Health: {selectedNode.health}</p>
-          <p className="text-ink-muted">Last invocation: {formatTime(selectedNode.last_invocation)}</p>
-          <p className="text-ink-muted">Error count: {selectedNode.error_count}</p>
-        </div>
+      {notReady ? (
+        <EmptyState channel={channel} />
       ) : (
-        <p className="text-xs text-ink-muted">Click a node in the diagram to see its metrics.</p>
+        <>
+          {nodes.length > 0 && (
+            <p className="text-xs text-ink-muted sm:hidden">Swipe sideways to see the whole pipeline →</p>
+          )}
+          <div className="overflow-x-auto rounded-lg border border-border bg-surface-primary p-4">
+            {renderError ? (
+              <p className="text-sm text-status-rejected">Diagram failed to render: {renderError}</p>
+            ) : (
+              <div
+                ref={containerRef}
+                className="flex min-w-[560px] justify-center [&_svg]:h-auto [&_svg]:max-w-none"
+              />
+            )}
+          </div>
+
+          {selectedNode ? (
+            <div className="rounded-lg border border-border bg-surface-primary p-4 text-sm">
+              <p className="font-semibold text-ink-primary">{selectedNode.label}</p>
+              <p className="text-ink-muted">Health: {selectedNode.health}</p>
+              <p className="text-ink-muted">Last invocation: {formatTime(selectedNode.last_invocation)}</p>
+              <p className="text-ink-muted">Error count: {selectedNode.error_count}</p>
+            </div>
+          ) : (
+            <p className="text-xs text-ink-muted">Click a node in the diagram to see its metrics.</p>
+          )}
+        </>
       )}
 
+      {/* The workflow write-up explains the shared machinery, not this
+          channel's data, so it stays visible even with no database yet. */}
       <div className="rounded-lg border border-border bg-surface-primary p-4 md:p-6">
         <article className="prose-workflow">
           <ReactMarkdown

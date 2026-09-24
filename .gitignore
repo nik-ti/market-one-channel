@@ -26,3 +26,4 @@ node_modules/
 venv/
 .env.local
 .env.production
+.vercel

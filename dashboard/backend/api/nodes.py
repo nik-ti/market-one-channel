@@ -15,7 +15,16 @@ MAX_POSTS_PER_HOUR today. A dashboard that shows config.py's default while the
 running channel actually reads a `.env` override would be lying about what is
 live. So model resolution mirrors config.py's own `_get()`: an override in
 .env (or the real process environment) wins, otherwise fall back to the
-default written in config.py's source.
+default written in config.py's source. Models are this shared machinery's
+config, not a channel's, so this part stays global regardless of ?channel=.
+
+Takes an optional ?channel=, resolved by channel_resolver (defaults to
+markets, never .env): the node LIST and the sorter's rubric now come from
+that channel's own PIPELINE and rubric.md (see pipeline.py), since two
+channels can wire up different stations. This does not depend on the
+channel's database — a channel with no DB yet (ai_news, today) still has a
+profile and a rubric, so its pipeline shows up; "ready" is included purely
+for the frontend to note that there's no data behind it yet.
 """
 
 from __future__ import annotations
@@ -26,9 +35,11 @@ import traceback
 from pathlib import Path
 
 from dotenv import dotenv_values
+from fastapi import APIRouter, Query
 
 import paths
-from fastapi import APIRouter
+import pipeline
+from channel_resolver import resolve_channel
 
 router = APIRouter()
 
@@ -36,6 +47,19 @@ ROOT_DIR = paths.ROOT_DIR
 NODES_DIR = ROOT_DIR / "nodes"
 CONFIG_PATH = ROOT_DIR / "config.py"
 ENV_PATH = paths.ENV_PATH
+
+# PIPELINE station name -> the LLM node id it shows up as here. Stations with
+# no entry (read_article, publish, or anything a channel adds of its own)
+# have no dedicated model/prompt in this dashboard and are left out of the
+# node list, same as before this became channel-aware.
+STATION_TO_NODE: dict[str, str] = {
+    "dedup_check": "judge",
+    "sorter": "sorter",
+    "place_story": "place_story",
+    "story_gate": "gate",
+    "writer": "writer",
+    "editor": "editor",
+}
 
 # node_name -> (source file, constant name) for nodes that have a prompt.
 # The judge's THREE-WAY prompt is the one actually used by dedup.py's check 5
@@ -93,15 +117,32 @@ DESCRIPTIONS: dict[str, str] = {
                   "(dedup check 4). No prompt — it is not an LLM call.",
 }
 
-# Display order: the order items actually flow through the pipeline.
+# Fallback display order, used only if a profile's PIPELINE can't be parsed.
 NODE_ORDER = ["judge", "sorter", "place_story", "gate", "writer", "editor", "embeddings"]
 
 
-def _channel_rubric() -> str | None:
-    """The active channel's rubric — see channels/<name>/rubric.md."""
-    env = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
-    channel = env.get("CHANNEL") or os.environ.get("CHANNEL") or "markets"
-    path = paths.channel_dir() / "rubric.md"
+def _node_order_for(channel: str) -> list[str]:
+    """This channel's PIPELINE, translated into the LLM node ids above, in
+    the order items actually flow through them. Embeddings isn't a PIPELINE
+    station — it's the sub-step check 4 of dedup runs before the judge ever
+    sees a pair — so it's appended whenever dedup_check (-> judge) is present,
+    same placement the dashboard has always shown it at."""
+    stations = pipeline.channel_pipeline(channel)
+    order: list[str] = []
+    for station in stations:
+        node_id = STATION_TO_NODE.get(station)
+        if node_id and node_id not in order:
+            order.append(node_id)
+    if not order:
+        return list(NODE_ORDER)
+    if "judge" in order:
+        order.append("embeddings")
+    return order
+
+
+def _channel_rubric(channel: str) -> str | None:
+    """`channel`'s rubric — see channels/<name>/rubric.md."""
+    path = paths.channel_dir(channel) / "rubric.md"
     try:
         return path.read_text()
     except OSError:
@@ -149,7 +190,9 @@ def _resolve_model(var_name: str, config_text: str, env_overrides: dict[str, str
 
 
 @router.get("/nodes")
-def get_nodes():
+def get_nodes(channel: str | None = Query(default=None, description="Which channel's pipeline/rubric to read")):
+    name = resolve_channel(channel)
+
     try:
         config_text = CONFIG_PATH.read_text(encoding="utf-8")
     except OSError as exc:
@@ -160,33 +203,33 @@ def get_nodes():
     env_overrides: dict[str, str | None] = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
 
     nodes = []
-    for name in NODE_ORDER:
+    for node_id in _node_order_for(name):
         prompt: str | None = None
-        if name in PROMPT_SOURCES:
-            filename, const_name = PROMPT_SOURCES[name]
+        if node_id in PROMPT_SOURCES:
+            filename, const_name = PROMPT_SOURCES[node_id]
             prompt = _extract_prompt(NODES_DIR / filename, const_name)
-        elif name == "sorter":
+        elif node_id == "sorter":
             # The sorter's rubric is the one prompt that belongs to the channel
             # rather than to the machinery, so it lives beside its profile.
-            prompt = _channel_rubric()
+            prompt = _channel_rubric(name)
 
-        model = _resolve_model(MODEL_VARS[name], config_text, env_overrides)
+        model = _resolve_model(MODEL_VARS[node_id], config_text, env_overrides)
 
         fallback_model: str | None = None
-        if name in FALLBACK_MODEL_VARS:
-            fallback_model = _resolve_model(FALLBACK_MODEL_VARS[name], config_text, env_overrides)
+        if node_id in FALLBACK_MODEL_VARS:
+            fallback_model = _resolve_model(FALLBACK_MODEL_VARS[node_id], config_text, env_overrides)
             if not fallback_model or fallback_model.startswith("(unknown"):
                 fallback_model = None
 
         nodes.append(
             {
-                "id": name,
-                "label": LABELS.get(name, name.replace("_", " ").title()),
-                "description": DESCRIPTIONS.get(name, ""),
+                "id": node_id,
+                "label": LABELS.get(node_id, node_id.replace("_", " ").title()),
+                "description": DESCRIPTIONS.get(node_id, ""),
                 "model": model,
                 "fallback_model": fallback_model,
                 "prompt": prompt,
             }
         )
 
-    return {"nodes": nodes}
+    return {"channel": name, "ready": paths.database_ready(name), "nodes": nodes}

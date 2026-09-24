@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
+import { EmptyState } from "@/components/EmptyState";
 import { StatusReason } from "@/components/StatusReason";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -99,9 +100,17 @@ function StoryCard({ story }: { story: Story }) {
   );
 }
 
-export function StoriesView() {
-  const { data, isFetching } = useStories();
+export function StoriesView({ channel }: { channel: string }) {
+  const { data, isFetching } = useStories(channel);
   const [showClosed, setShowClosed] = useState(false);
+
+  if (data && !data.ready) {
+    return (
+      <div className="p-4">
+        <EmptyState channel={channel} />
+      </div>
+    );
+  }
 
   const live = data?.stories.filter((s) => s.state === "live") ?? [];
   const closed = data?.stories.filter((s) => s.state !== "live") ?? [];

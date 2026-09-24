@@ -72,13 +72,22 @@ function NodeCard({ node }: { node: NodeInfo }) {
   );
 }
 
-export function NodesViewer() {
-  const { data, isFetching, isLoading } = useNodes();
+export function NodesViewer({ channel }: { channel: string }) {
+  const { data, isFetching, isLoading } = useNodes(channel);
   const nodes = data?.nodes ?? [];
 
   return (
     <div className="flex flex-col gap-4 p-4">
       {isFetching && <span className="text-xs text-ink-muted">Refreshing...</span>}
+
+      {/* Nodes/prompts come from the channel's profile.py and rubric.md, not
+          its database — a channel with no data yet still has a pipeline
+          worth showing, so this is a note, not a blocking empty state. */}
+      {data && !data.ready && (
+        <p className="rounded-md border border-dashed border-border bg-surface-secondary px-3 py-2 text-xs text-ink-muted">
+          This channel has no database yet — the pipeline below reflects its profile, not live runs.
+        </p>
+      )}
 
       {isLoading ? (
         <p className="text-sm text-ink-muted">Loading...</p>

@@ -32,6 +32,13 @@ FIXABLE_RULES = frozenset({
     "EMPTY_BODY",
 })
 
+# The editor's two rules that answer "is this worth posting" rather than "is
+# this post any good". A forced item has already been answered on that by a
+# human, so these stop blocking — every other rule still does, because
+# overriding an editorial call is not a reason to publish a broken or
+# untrue post.
+EDITORIAL_RULES = frozenset({"NO_NEWS", "WRONG_TOPIC"})
+
 
 # Conditional edges in brain/graph.py call these. A node sets state["outcome"]
 # when the item's journey is over; an empty outcome means "carry on".
@@ -113,10 +120,14 @@ async def sorter_node(state: dict) -> dict[str, Any]:
     item_id = item["id"]
     dry = state.get("dry_run", False)
 
-    if state.get("sweep"):
+    if state.get("sweep") or state.get("forced"):
+        # A roundup was judged when it first arrived. A forced item was judged
+        # too, and a human disagreed — asking the same model again would only
+        # produce the same answer that is being overruled.
+        why = "roundup" if state.get("sweep") else "forced past the sorter"
         return {"sorter_verdict": {"topic": item.get("topic") or "", "importance": item.get("importance") or 0,
                                    "market": item.get("market") or "", "relevant": True,
-                                   "reason": "roundup", "fallback": False}}
+                                   "reason": why, "fallback": False}}
 
     verdict = await sorter.execute(item)
 
@@ -237,6 +248,20 @@ async def story_gate_node(state: dict) -> dict[str, Any]:
     story = state["story"]
     now = datetime.now(timezone.utc)
     dry = state.get("dry_run", False)
+
+    if state.get("forced"):
+        # This item goes to the writer ALONE, not folded together with whatever
+        # else the story had waiting. You forced this one, so this one is what
+        # gets written — otherwise the story's other pending items crowd it out
+        # and the post is about something you did not ask for.
+        #
+        # It stays filed in the story, which is the other half of the point: the
+        # next item on the same story has to know this was covered.
+        log.info("Item %s forced to the writer on its own, filed in story %s",
+                 item["id"], story.id)
+        return {"story_angle": "",
+                "story_brief": stories.brief_for_writer(story, "", single_item=True),
+                "gate_reason": "forced", "trigger_item_id": item["id"]}
 
     verdict = await stories.should_post(story, now)
 
@@ -404,6 +429,13 @@ async def editor_node(state: dict) -> dict[str, Any]:
     if not decision["approved"]:
         rules = set(decision["rules_broken"])
 
+        if state.get("forced") and rules and rules <= EDITORIAL_RULES:
+            log.info("Item %s: editor said %s, overruled because it was forced",
+                     item["id"], ", ".join(sorted(rules)))
+            decision = {**decision, "approved": True,
+                        "reason": f"forced past {', '.join(sorted(rules))}"}
+            return {"editor_verdict": decision, "rewrite_requested": False}
+
         # Fixable and not yet rewritten: back to the writer with the reason.
         if rules and rules <= FIXABLE_RULES and rewrite_count < config.MAX_REWRITES:
             feedback = f"{', '.join(decision['rules_broken'])}: {decision['reason']}"
@@ -452,6 +484,9 @@ async def publish_node(state: dict) -> dict[str, Any]:
         db.record_story_post(
             state["story_id"], item["id"],
             persona_loader.visible_text(state["post_html"]),
+            # A forced post was written from one item alone, so it covered
+            # nothing else the story was holding.
+            covers_others=not state.get("forced", False),
         )
 
     return {"outcome": "published" if sent else "retry"}

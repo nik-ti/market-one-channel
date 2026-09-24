@@ -58,6 +58,8 @@ class BrainState(TypedDict, total=False):
     item: dict                  # after the gate approves, the FOLDED story source
     dry_run: bool               # rehearsal: decide everything, write and send nothing
     place_only: bool            # file into a story, but stop before the gate
+    forced: bool                # a human overrode a rejection: the sorter and the
+                                # gate step aside, the writer and the editor do not
     sweep: bool                 # a roundup: the item was judged once already,
                                 # skip straight to its story and the gate
 
@@ -129,7 +131,8 @@ graph = build_graph()
 
 
 async def run_item(item_row, *, dry_run: bool = False,
-                   place_only: bool = False, sweep: bool = False) -> dict[str, Any]:
+                   place_only: bool = False, sweep: bool = False,
+                   forced: bool = False) -> dict[str, Any]:
     """Run one queued item through the editorial graph.
 
     dry_run makes every decision for real but writes nothing and sends nothing.
@@ -137,6 +140,12 @@ async def run_item(item_row, *, dry_run: bool = False,
     the pacing limits mean nothing can go out anyway. sweep re-enters with a
     held item to release a roundup: it was judged once already, so dedup and
     the sorter step aside and placement resumes its story.
+
+    forced is a human disagreeing with a rejection from the dashboard. It skips
+    the two stations that judge whether an item is worth posting, and keeps the
+    two that judge whether the post is any good. Placement still runs, because
+    the story needs to know this went out — otherwise the next item on the same
+    story has no idea it was already covered.
     Returns the final state; state["outcome"] is the one-word result.
     """
     initial: BrainState = {
@@ -144,6 +153,7 @@ async def run_item(item_row, *, dry_run: bool = False,
         "dry_run": dry_run,
         "place_only": place_only,
         "sweep": sweep,
+        "forced": forced,
         "rewrite_count": 0,
         "editor_feedback": "",
         "outcome": "",

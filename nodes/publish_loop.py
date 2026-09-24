@@ -76,7 +76,11 @@ async def process_item(item, place_only: bool = False, sweep: bool = False) -> s
                                  persona_loader.visible_text(existing["post_html"]))
         return "published" if sent else "retry"
 
-    state = await brain.run_item(item, dry_run=False, place_only=place_only, sweep=sweep)
+    # A human overruled a rejection from the dashboard; db.force_item set this
+    # when it put the item back in the queue.
+    forced = bool(item["forced"]) if "forced" in item.keys() else False
+    state = await brain.run_item(item, dry_run=False, place_only=place_only,
+                                 sweep=sweep, forced=forced)
     return state.get("outcome", "failed")
 
 

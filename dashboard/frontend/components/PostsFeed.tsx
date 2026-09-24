@@ -8,8 +8,9 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
+import { EmptyState } from "@/components/EmptyState";
 import { StatusReason } from "@/components/StatusReason";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,13 +94,28 @@ function PostCard({
   );
 }
 
-export function PostsFeed() {
+export function PostsFeed({ channel }: { channel: string }) {
   const [source, setSource] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  const { data: stats } = useStats();
-  const { data, isFetching, dataUpdatedAt } = usePosts(source, PAGE_SIZE, page * PAGE_SIZE);
+  // Switching channels starts the feed fresh — a page/filter from the last
+  // channel makes no sense once the underlying data is a different pipeline.
+  useEffect(() => {
+    setSource(null);
+    setPage(0);
+  }, [channel]);
+
+  const { data: stats } = useStats(channel);
+  const { data, isFetching, dataUpdatedAt } = usePosts(channel, source, PAGE_SIZE, page * PAGE_SIZE);
+
+  if (data && !data.ready) {
+    return (
+      <div className="p-4">
+        <EmptyState channel={channel} />
+      </div>
+    );
+  }
 
   function toggleExpanded(id: number) {
     setExpanded((prev) => {

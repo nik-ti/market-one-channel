@@ -260,3 +260,18 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Every time a human disagreed with the pipeline: a rejection overruled, or a
+-- post that should not have gone out. This is the channel's only labelled
+-- data — each row is a test case for whether a later change to a prompt
+-- actually helped, rather than only sounding better.
+CREATE TABLE IF NOT EXISTS overrides (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id     INTEGER NOT NULL,
+    was_status  TEXT    NOT NULL DEFAULT '',   -- what the pipeline had decided
+    was_reason  TEXT    NOT NULL DEFAULT '',   -- and the reason it gave
+    decision    TEXT    NOT NULL,              -- publish | should_not_have_posted
+    note        TEXT    NOT NULL DEFAULT '',   -- optional: why you disagreed
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_overrides_item ON overrides(item_id);

@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api import graph, nodes, posts, stats, stories
+from api import actions, channels, graph, nodes, posts, stats, stories
 from db_connector import DatabaseUnavailableError
 
 app = FastAPI(title="Market One Dashboard API", version="1.0.0")
@@ -46,7 +46,7 @@ async def require_token(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -67,6 +67,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": "internal server error"})
 
 
+app.include_router(actions.router, prefix="/api/v1", tags=["actions"])
+app.include_router(channels.router, prefix="/api/v1")
 app.include_router(posts.router, prefix="/api/v1")
 app.include_router(stories.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")

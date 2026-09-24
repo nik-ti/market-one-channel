@@ -20,7 +20,7 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "Market One Dashboard",
-  description: "Live monitoring dashboard for the @market_one_news Telegram channel",
+  description: "Live monitoring dashboard over Market One's news channels",
 };
 
 export default function RootLayout({

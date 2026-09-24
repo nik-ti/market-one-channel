@@ -16,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { EmptyState } from "@/components/EmptyState";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStats } from "@/hooks/useApi";
 
@@ -26,8 +27,16 @@ const GATE_COLORS: Record<string, string> = {
   expired: "#9CA3AF",
 };
 
-export function StatsPanel() {
-  const { data, isFetching } = useStats();
+export function StatsPanel({ channel }: { channel: string }) {
+  const { data, isFetching } = useStats(channel);
+
+  if (data && !data.ready) {
+    return (
+      <div className="p-4">
+        <EmptyState channel={channel} />
+      </div>
+    );
+  }
 
   const sourceData = data?.sources_count ?? [];
   const gateData = data

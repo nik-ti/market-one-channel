@@ -2,6 +2,7 @@
 // environment (never hardcoded — see SPEC.md FAILURE #10) so the same build
 // works against localhost in dev and the VPS through Vercel in prod.
 import type {
+  ChannelsResponse,
   GraphResponse,
   NodesResponse,
   PostsResponse,
@@ -27,26 +28,30 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function fetchPosts(source: string | null, limit: number, offset: number) {
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+export function fetchPosts(channel: string, source: string | null, limit: number, offset: number) {
+  const params = new URLSearchParams({ channel, limit: String(limit), offset: String(offset) });
   if (source) params.set("source", source);
   return get<PostsResponse>(`/posts?${params.toString()}`);
 }
 
-export function fetchStories() {
-  return get<StoriesResponse>("/stories");
+export function fetchStories(channel: string) {
+  return get<StoriesResponse>(`/stories?${new URLSearchParams({ channel }).toString()}`);
 }
 
-export function fetchStats() {
-  return get<StatsResponse>("/stats");
+export function fetchStats(channel: string) {
+  return get<StatsResponse>(`/stats?${new URLSearchParams({ channel }).toString()}`);
 }
 
-export function fetchGraph() {
-  return get<GraphResponse>("/graph");
+export function fetchGraph(channel: string) {
+  return get<GraphResponse>(`/graph?${new URLSearchParams({ channel }).toString()}`);
 }
 
-export function fetchNodes() {
-  return get<NodesResponse>("/nodes");
+export function fetchNodes(channel: string) {
+  return get<NodesResponse>(`/nodes?${new URLSearchParams({ channel }).toString()}`);
+}
+
+export function fetchChannels() {
+  return get<ChannelsResponse>("/channels");
 }
 
 // /health is not under /api/v1 in api.ts's base path sense — it lives at
