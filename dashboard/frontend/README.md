@@ -7,13 +7,13 @@ prompt.
 ## Run locally
 
 ```bash
-cd dashboard-frontend
+cd dashboard/frontend
 npm install
 cp .env.example .env.local   # points at http://localhost:8000/api/v1
 npm run dev                  # http://localhost:3000
 ```
 
-The backend (`dashboard-backend/`) must be running first — see its README.
+The backend (`dashboard/backend/`) must be running first — see its README.
 
 ## Tabs
 

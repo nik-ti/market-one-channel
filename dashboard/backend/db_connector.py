@@ -1,6 +1,6 @@
 """Read-only SQLite connector for the dashboard.
 
-Opens data/news.db in read-only mode (via the sqlite "file:...?mode=ro" URI) so
+Opens the active channel's database in read-only mode (via the sqlite "file:...?mode=ro" URI) so
 the dashboard can never write to it, and every connection gets a busy_timeout
 so a query never hangs while news-channel's own processes are writing to the
 same file — it raises sqlite3.OperationalError instead, which the API layer
@@ -12,10 +12,12 @@ from __future__ import annotations
 import sqlite3
 import traceback
 from pathlib import Path
+
+import paths
 from typing import Any
 
 # The database this whole dashboard reads. Never written to from here.
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "news.db"
+DB_PATH = paths.database_path()
 
 # How long a single query may wait on a lock before giving up. Keeps a
 # concurrent write from making the dashboard hang instead of failing fast.

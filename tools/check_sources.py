@@ -90,7 +90,7 @@ async def main() -> None:
     if cached and not working:
         print("   Everything came back 'unchanged', which means you have run this")
         print("   recently. That is the caching working as intended. To force a")
-        print("   full re-read:  sqlite3 data/news.db \"UPDATE sources SET etag='',")
+        print("   full re-read:  sqlite3 data/markets.db \"UPDATE sources SET etag='',")
         print("   last_modified=''\"\n")
 
 

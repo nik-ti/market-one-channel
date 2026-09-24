@@ -11,7 +11,7 @@
 #   sudo systemctl status market-one-channel      is it running?
 #   sudo systemctl restart market-one-channel     restart it (after editing config.py)
 #   sudo systemctl stop market-one-channel        stop posting entirely
-#   tail -f logs/market-one-channel.log           watch what it is doing
+#   tail -f logs/markets.log           watch what it is doing
 
 [Unit]
 Description=Market One Channel — crypto/markets/geopolitics Telegram channel
@@ -34,12 +34,14 @@ Restart=always
 RestartSec=15
 
 # Print output immediately instead of buffering it, so the log is current.
+# Which channel this process is. Without it, config.py defaults to markets.
+Environment=CHANNEL=markets
 Environment=PYTHONUNBUFFERED=1
 
 # The log is appended to a file. logrotate keeps it from growing forever —
 # see deploy/market-one-channel.logrotate.
-StandardOutput=append:/home/nikita/systems/market-one-channel/logs/market-one-channel.log
-StandardError=append:/home/nikita/systems/market-one-channel/logs/market-one-channel.log
+StandardOutput=append:/home/nikita/systems/market-one-channel/logs/markets.log
+StandardError=append:/home/nikita/systems/market-one-channel/logs/markets.log
 
 # A ceiling on memory. This program should use well under 200 MB; if it ever
 # runs away, the limit stops it taking the rest of the server — and the trading

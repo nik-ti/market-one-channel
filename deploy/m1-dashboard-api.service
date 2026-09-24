@@ -2,7 +2,7 @@
 #
 # WHAT THIS IS
 #   The read-only API the dashboard front end (on Vercel) reads. It serves
-#   data/news.db and never writes to it. Without this running, the dashboard
+#   the active channel's database and never writes to it. Without this running, the dashboard
 #   shows its "API offline" banner and nothing else.
 #
 # INSTALL
@@ -24,12 +24,12 @@ Wants=network-online.target
 Type=simple
 User=nikita
 Group=nikita
-WorkingDirectory=/home/nikita/systems/market-one-channel/dashboard-backend
+WorkingDirectory=/home/nikita/systems/market-one-channel/dashboard/backend
 
 # Bound to localhost on purpose: nginx is the only thing that should reach it,
 # and it forwards /api/dashboard/v1 here. Listening on 0.0.0.0 would also open
 # port 8000 to the whole internet, bypassing nginx entirely.
-ExecStart=/home/nikita/systems/market-one-channel/dashboard-backend/venv/bin/uvicorn \
+ExecStart=/home/nikita/systems/market-one-channel/dashboard/backend/venv/bin/uvicorn \
     main:app --host 127.0.0.1 --port 8000
 
 Restart=always

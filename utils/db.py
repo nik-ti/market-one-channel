@@ -965,7 +965,19 @@ def recent_decline_rate(window: int) -> tuple[float, int]:
 # =============================================================================
 
 def bump_counter(kind: str, n: int = 1) -> None:
-    """Add to today's tally for one kind of event (ingested, published, ...)."""
+    """Add to today's tally for one kind of event (ingested, published, ...).
+
+    Never raises. A tally is a statistic, and the database can be briefly busy
+    — another channel's process, a rehearsal, a backup. Losing one count is
+    always better than losing the news item whose pipeline was writing it.
+    """
+    try:
+        _bump_counter(kind, n)
+    except sqlite3.OperationalError as error:
+        logger.debug("Counter %s not recorded: %s", kind, error)
+
+
+def _bump_counter(kind: str, n: int) -> None:
     conn().execute(
         """
         INSERT INTO counters (day, kind, n) VALUES (?, ?, ?)

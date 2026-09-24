@@ -26,14 +26,16 @@ import traceback
 from pathlib import Path
 
 from dotenv import dotenv_values
+
+import paths
 from fastapi import APIRouter
 
 router = APIRouter()
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_DIR = paths.ROOT_DIR
 NODES_DIR = ROOT_DIR / "nodes"
 CONFIG_PATH = ROOT_DIR / "config.py"
-ENV_PATH = ROOT_DIR / ".env"
+ENV_PATH = paths.ENV_PATH
 
 # node_name -> (source file, constant name) for nodes that have a prompt.
 # The judge's THREE-WAY prompt is the one actually used by dedup.py's check 5
@@ -99,7 +101,7 @@ def _channel_rubric() -> str | None:
     """The active channel's rubric — see channels/<name>/rubric.md."""
     env = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
     channel = env.get("CHANNEL") or os.environ.get("CHANNEL") or "markets"
-    path = ROOT_DIR / "channels" / channel / "rubric.md"
+    path = paths.channel_dir() / "rubric.md"
     try:
         return path.read_text()
     except OSError:

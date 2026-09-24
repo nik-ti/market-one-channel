@@ -13,9 +13,9 @@ HERE = Path(__file__).resolve().parent
 
 NAME = "markets"
 
-DB_FILENAME = "news.db"
+DB_FILENAME = "markets.db"
 
-LOG_FILENAME = "market-one-channel.log"
+LOG_FILENAME = "markets.log"
 
 BOT_TOKEN_KEY = "TELEGRAM_BOT_TOKEN"
 CHANNEL_ID_KEY = "CHANNEL_ID"

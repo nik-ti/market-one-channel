@@ -1,0 +1,35 @@
+# Template for a second channel. Copy, replace <name>, install:
+#
+#   sed 's/<name>/ai_news/g' deploy/channel.service.template \
+#     | sudo tee /etc/systemd/system/ai-news.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ai-news
+#
+# Its secrets go in the same .env, under the keys its profile.py names.
+
+[Unit]
+Description=<name> channel
+After=network-online.target redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=nikita
+Group=nikita
+WorkingDirectory=/home/nikita/systems/market-one-channel
+ExecStart=/usr/bin/python3 /home/nikita/systems/market-one-channel/main.py run
+
+Environment=CHANNEL=<name>
+Environment=PYTHONUNBUFFERED=1
+
+Restart=always
+RestartSec=15
+
+StandardOutput=append:/home/nikita/systems/market-one-channel/logs/<name>.log
+StandardError=append:/home/nikita/systems/market-one-channel/logs/<name>.log
+
+MemoryHigh=400M
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target

@@ -33,7 +33,7 @@ A fully functional, responsive dashboard deployed to Vercel that:
 
 ```
 market-one-channel/
-├── dashboard-backend/          # Python FastAPI server (VPS, port 8000)
+├── dashboard/backend/          # Python FastAPI server (VPS, port 8000)
 │   ├── main.py                 # FastAPI app entry point
 │   ├── api/
 │   │   ├── posts.py            # GET /api/v1/posts (with pagination, filters)
@@ -48,7 +48,7 @@ market-one-channel/
 │   ├── run.sh                  # Start script (uvicorn)
 │   └── README.md
 │
-├── dashboard-frontend/         # Next.js app (deploy to Vercel)
+├── dashboard/frontend/         # Next.js app (deploy to Vercel)
 │   ├── app/
 │   │   ├── page.tsx            # Main layout with tabs
 │   │   ├── layout.tsx
@@ -83,9 +83,9 @@ market-one-channel/
 **Backend:** Systemd service on VPS (add to `/etc/systemd/system/market-one-dashboard.service`)
 ```
 [Service]
-ExecStart=/usr/bin/python3 /home/nikita/systems/market-one-channel/dashboard-backend/main.py
+ExecStart=/usr/bin/python3 /home/nikita/systems/market-one-channel/dashboard/backend/main.py
 Restart=always
-WorkingDirectory=/home/nikita/systems/market-one-channel/dashboard-backend
+WorkingDirectory=/home/nikita/systems/market-one-channel/dashboard/backend
 ```
 
 Listens on `http://localhost:8000`. Nginx proxy at the VPS routes `/api/dashboard/v1/*` → `http://localhost:8000/api/v1/*`.
@@ -100,7 +100,7 @@ Listens on `http://localhost:8000`. Nginx proxy at the VPS routes `/api/dashboar
 - **Auth:** None for now (personal tool); if expanded, token-based (JWT in header)
 - **Browser support:** Chrome, Firefox, Safari (iOS + macOS); no IE11
 - **Minimal dependencies:** FastAPI, uvicorn, TanStack Query, Shadcn/ui, TailwindCSS — nothing exotic
-- **Database:** Read-only access to existing `data/news.db` (SQLite). No writes from dashboard.
+- **Database:** Read-only access to existing `data/<channel>.db` (SQLite). No writes from dashboard.
 - **Polling interval:** 5-10 seconds (user said "whichever is mechanically better" — 10s is cleaner, start there)
 - **API versioning:** `/api/v1/` from day one
 - **Hard deadline for core functionality:** Posts + Stories + Stats tabs working before moving to Graph/Prompts tabs
@@ -137,7 +137,7 @@ Any of these = not done:
 
 - **Frontend:** Next.js 14+, React 18+, TailwindCSS 3+, Shadcn/ui, TanStack Query v5
 - **Backend:** FastAPI, Uvicorn, sqlite3 (stdlib)
-- **Database:** Existing `/home/nikita/systems/market-one-channel/data/news.db` (no schema changes)
+- **Database:** The active channel's database under `data/` (no schema changes)
 - **Deployment:** Vercel (frontend), systemd (backend on VPS)
 - **Research:** 
   - SWR vs TanStack Query: chose TanStack for better error handling and offline detection
@@ -175,14 +175,14 @@ Any of these = not done:
 
 ### Backend (local development)
 ```bash
-cd dashboard-backend
+cd dashboard/backend
 pip install -r requirements.txt
 python3 main.py  # Runs on http://localhost:8000
 ```
 
 ### Frontend (local development)
 ```bash
-cd dashboard-frontend
+cd dashboard/frontend
 npm install
 npm run dev  # Runs on http://localhost:3000
 # Set NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1 in .env.local

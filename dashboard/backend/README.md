@@ -1,12 +1,12 @@
 # Market One Dashboard — Backend
 
-Read-only FastAPI service that exposes `data/news.db` to the dashboard
+Read-only FastAPI service that exposes the active channel's database to the dashboard
 frontend. Never writes to the database.
 
 ## Run locally
 
 ```bash
-cd dashboard-backend
+cd dashboard/backend
 python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 python3 main.py          # http://localhost:8000

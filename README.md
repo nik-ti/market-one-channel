@@ -1,4 +1,8 @@
-# Market One Channel — crypto / markets / geopolitics
+# Market One — news channels that run themselves
+
+One codebase, one channel per folder under `channels/`. The first is
+**markets** (crypto / markets / geopolitics), live at @market_one_news.
+`CHANNEL` in `.env` picks which one a process is.
 
 **What it does:** reads news from RSS feeds and from X accounts, throws away
 anything it has already covered or that isn't market-moving, rewrites what's left
@@ -414,7 +418,7 @@ python3 tools/stats.py --dropped    # what real news did the gate refuse to run?
 python3 tools/check_sources.py      # are all the feeds still alive?
 python3 tools/check_dedup.py        # is the meaning check actually running?
 python3 tools/check_tweets.py       # watch the X stream live
-tail -f logs/market-one-channel.log       # what is it doing right now?
+tail -f logs/markets.log       # what is it doing right now?
 ```
 
 ### Adding a feed
@@ -490,17 +494,44 @@ restarting the service.
 
 ## Layout
 
+Shared machinery — none of it knows what a channel is about:
+
 ```
 main.py            the orchestrator: run | collect | publish | initdb | check | stats
-config.py          every setting, the feed list, the X account list  ← edit this
-schema.sql         the database tables
+config.py          machinery settings, and it loads the active channel's profile
+schema.sql         the database tables, the same for every channel
+brain/             the graph: state, stations, routing
 nodes/             one file per step of the pipeline (the diagram above)
 utils/             shared helpers: database, Telegram, OpenRouter, text cleaning
 tools/             things you run by hand — none of them post anything
-deploy/            the systemd service and log rotation
+deploy/            the systemd units and log rotation
 docs/              analysis and proposals, not code
-data/news.db       the database
-logs/              the log
+```
+
+What makes a channel itself — copy this folder to add one:
+
+```
+channels/markets/
+   profile.py      sources, X accounts, thresholds, and its PIPELINE
+   rubric.md       what this channel considers important (the sorter's prompt)
+   persona.md      its voice
+   nodes.py        optional: stations only this channel has
+```
+
+Per-channel files, named after the channel, in shared directories:
+
+```
+data/<name>.db     its database — never shared, dedup and stories read "everything recent"
+logs/<name>.log    its log
+.env               every channel's secrets, under its own keys (see profile.py)
+```
+
+The monitoring dashboard is a separate product that reads all of this:
+
+```
+dashboard/backend  read-only FastAPI over the database (systemd: m1-dashboard-api)
+dashboard/frontend Next.js on Vercel
+dashboard/SPEC.md  its contract
 ```
 
 ---

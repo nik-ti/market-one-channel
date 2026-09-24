@@ -1,6 +1,6 @@
 """Market One Dashboard backend — FastAPI app.
 
-Serves read-only data from data/news.db to the dashboard frontend under
+Serves read-only data from the active channel's database to the dashboard frontend under
 /api/v1/*. Personal tool: no auth, CORS open to any origin, polling only
 (no WebSocket). Run directly with `python3 main.py` or via run.sh.
 """
