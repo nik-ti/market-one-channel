@@ -4,7 +4,7 @@
 
 import { cn } from "@/lib/utils";
 
-export const TABS = ["Posts", "Stories", "Stats", "Graph", "Prompts"] as const;
+export const TABS = ["Posts", "Stories", "Stats", "Graph", "Nodes"] as const;
 export type Tab = (typeof TABS)[number];
 
 export function TabNav({
@@ -21,7 +21,9 @@ export function TabNav({
           key={tab}
           onClick={() => onChange(tab)}
           className={cn(
-            "shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+            // py-3 gives a 44px tap target on phones; sm: brings it back to
+            // the original, more compact desktop size.
+            "shrink-0 border-b-2 px-3 py-3 text-sm font-medium transition-colors sm:py-2",
             active === tab
               ? "border-ink-primary text-ink-primary"
               : "border-transparent text-ink-muted hover:text-ink-primary"

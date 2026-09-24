@@ -8,8 +8,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   fetchGraph,
   fetchHealth,
+  fetchNodes,
   fetchPosts,
-  fetchPrompts,
   fetchStats,
   fetchStories,
 } from "@/lib/api";
@@ -52,12 +52,12 @@ export function useGraph() {
   });
 }
 
-export function usePrompts() {
+export function useNodes() {
   return useQuery({
-    queryKey: ["prompts"],
-    queryFn: fetchPrompts,
-    // Prompts only change when someone edits a node's source file — no
-    // need to hammer the API for it every 10s.
+    queryKey: ["nodes"],
+    queryFn: fetchNodes,
+    // Node prompts/models only change when someone edits source or .env —
+    // no need to hammer the API for it every 10s.
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });

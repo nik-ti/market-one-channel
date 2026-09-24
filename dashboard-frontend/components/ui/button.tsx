@@ -18,8 +18,10 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-9 px-4 py-2",
-        sm: "h-8 px-3 text-xs",
-        icon: "h-9 w-9",
+        // 44px minimum on phones (tap-target guideline); back to the original
+        // compact size from the sm: breakpoint up, where a mouse is precise.
+        sm: "h-11 px-4 text-xs sm:h-8 sm:px-3",
+        icon: "h-11 w-11 sm:h-9 sm:w-9",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

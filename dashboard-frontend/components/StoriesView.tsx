@@ -123,7 +123,7 @@ export function StoriesView() {
       <div>
         <button
           onClick={() => setShowClosed((v) => !v)}
-          className="flex items-center gap-1 text-sm font-semibold text-ink-primary"
+          className="flex min-h-[44px] w-full items-center gap-1.5 text-sm font-semibold text-ink-primary"
         >
           {showClosed ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           Closed stories ({closed.length})

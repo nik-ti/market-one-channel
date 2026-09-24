@@ -6,8 +6,8 @@ import { useState } from "react";
 
 import { GraphViewer } from "@/components/GraphViewer";
 import { Header } from "@/components/Header";
+import { NodesViewer } from "@/components/NodesViewer";
 import { PostsFeed } from "@/components/PostsFeed";
-import { PromptsViewer } from "@/components/PromptsViewer";
 import { StatsPanel } from "@/components/StatsPanel";
 import { StoriesView } from "@/components/StoriesView";
 import { TabNav, TABS, type Tab } from "@/components/TabNav";
@@ -20,7 +20,7 @@ const TAB_CONTENT: Record<Tab, React.ComponentType> = {
   Stories: StoriesView,
   Stats: StatsPanel,
   Graph: GraphViewer,
-  Prompts: PromptsViewer,
+  Nodes: NodesViewer,
 };
 
 export default function Home() {

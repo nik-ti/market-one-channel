@@ -87,6 +87,15 @@ export interface GraphResponse {
   edges: GraphEdge[];
 }
 
-export interface PromptsResponse {
-  prompts: Record<string, string>;
+export interface NodeInfo {
+  id: string;
+  label: string;
+  description: string;
+  model: string;
+  fallback_model: string | null;
+  prompt: string | null;
+}
+
+export interface NodesResponse {
+  nodes: NodeInfo[];
 }

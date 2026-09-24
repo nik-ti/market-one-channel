@@ -20,7 +20,7 @@ curl http://localhost:8000/api/v1/posts
 curl http://localhost:8000/api/v1/stories
 curl http://localhost:8000/api/v1/stats
 curl http://localhost:8000/api/v1/graph
-curl http://localhost:8000/api/v1/prompts
+curl http://localhost:8000/api/v1/nodes
 ```
 
 ## Endpoints
@@ -33,7 +33,7 @@ All under `/api/v1`, GET only:
 | `/stories` | — | all stories with computed item/post counts |
 | `/stats` | — | posts-by-source, published/rejected/held/expired split, 24h trend |
 | `/graph` | — | pipeline nodes/edges + per-node health |
-| `/prompts` | — | system prompt text per node |
+| `/nodes` | — | each LLM node's model (+ fallback) and full system prompt |
 
 ## Errors
 

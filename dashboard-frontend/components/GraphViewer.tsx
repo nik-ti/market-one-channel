@@ -98,6 +98,9 @@ export function GraphViewer() {
     <div className="flex flex-col gap-4 p-4">
       {isFetching && <span className="text-xs text-ink-muted">Refreshing...</span>}
 
+      {nodes.length > 0 && (
+        <p className="text-xs text-ink-muted sm:hidden">Swipe sideways to see the whole pipeline →</p>
+      )}
       <div className="overflow-x-auto rounded-lg border border-border bg-surface-primary p-4">
         {renderError ? (
           <p className="text-sm text-status-rejected">Diagram failed to render: {renderError}</p>
@@ -126,10 +129,15 @@ export function GraphViewer() {
             remarkPlugins={[remarkGfm]}
             components={{
               // Markdown tables don't wrap themselves — without this a wide
-              // table (the "Dashboard Summary" one) overflows at 375px.
+              // table (the "Dashboard Summary" one) overflows at 375px. It
+              // still overflows even wrapped (the content itself is wide),
+              // so phones get a hint that there's more to the right.
               table: ({ ...props }) => (
-                <div className="table-scroll">
-                  <table {...props} />
+                <div>
+                  <p className="mb-1 text-xs text-ink-muted sm:hidden">Swipe to see the full table →</p>
+                  <div className="table-scroll">
+                    <table {...props} />
+                  </div>
                 </div>
               ),
             }}

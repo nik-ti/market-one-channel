@@ -1,7 +1,8 @@
 # Market One Dashboard — Frontend
 
 Next.js app that shows what's flowing through the @market_one_news pipeline:
-posts, stories, stats, the processing graph, and each node's system prompt.
+posts, stories, stats, the processing graph, and each node's model + system
+prompt.
 
 ## Run locally
 
@@ -21,8 +22,10 @@ The backend (`dashboard-backend/`) must be running first — see its README.
 - **Stats** — posts by source, gate outcomes, 24h trend (Recharts).
 - **Graph** — the pipeline as an SVG; click a node for its last invocation
   time and error count.
-- **Prompts** — read-only system prompt per node (sorter, gate, writer,
-  editor).
+- **Nodes** — every LLM node in the pipeline (dedup/judge, sorter, place
+  story, story gate, writer, editor, embeddings): what it does, which model
+  runs it (resolved the same way `config.py` does — `.env` override, else
+  the default), and its full system prompt.
 
 ## Deploying to Vercel
 

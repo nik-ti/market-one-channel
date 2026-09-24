@@ -3,8 +3,8 @@
 // works against localhost in dev and the VPS through Vercel in prod.
 import type {
   GraphResponse,
+  NodesResponse,
   PostsResponse,
-  PromptsResponse,
   StatsResponse,
   StoriesResponse,
 } from "./types";
@@ -45,8 +45,8 @@ export function fetchGraph() {
   return get<GraphResponse>("/graph");
 }
 
-export function fetchPrompts() {
-  return get<PromptsResponse>("/prompts");
+export function fetchNodes() {
+  return get<NodesResponse>("/nodes");
 }
 
 // /health is not under /api/v1 in api.ts's base path sense — it lives at

@@ -126,7 +126,7 @@ export function StatsPanel() {
                 <XAxis
                   dataKey="hour"
                   stroke="var(--ink-muted)"
-                  fontSize={11}
+                  fontSize={12}
                   tickFormatter={(v: string) => v.slice(11, 16)}
                 />
                 <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
