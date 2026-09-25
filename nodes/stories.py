@@ -281,7 +281,11 @@ It has changed state when:
   - a NEW party or a NEW front enters (Saudi Arabia joins; a second country's
     ships are hit; a second regulator opens a case)
   - a price crosses a landmark the reader will remember — a record, a multi-year
-    extreme, a major round number — for the FIRST time in this story
+    extreme, a major round number — for the FIRST time in this story. ONCE, and
+    then never again for that run. A rise that is already under way sets a fresh
+    record most days, so "a record" on its own does not qualify: if you have
+    already told the reader this is the highest since 2004, the next highest
+    since 2004 is the same run, whatever the new figure says
 
 It has NOT changed state when:
   - another incident happens inside the same state: another strike, another
@@ -298,7 +302,13 @@ It has NOT changed state when:
   - more detail arrives about the same development — extra place names, extra
     quotes, a fuller list of the same strikes
   - a number ticks further along a trend already reported ("highest in 112
-    days" after we said it was rising; $104 after we said $100)
+    days" after we said it was rising; $104 after we said $100). When this and
+    the landmark rule above both seem to apply, THIS ONE WINS — a new extreme
+    inside a run you have already described is the run continuing
+  - the same move turns up on a related instrument. Rising US yields are one
+    story across the 2-, 10- and 30-year: one curve, not three landmarks.
+    Reporting that the 30-year did what you already said the 10-year did is one
+    move told twice
   - an analyst, market or commentator reacts to what we already said
   - one side threatens, warns, or says it "will respond" — words, not a state
 
