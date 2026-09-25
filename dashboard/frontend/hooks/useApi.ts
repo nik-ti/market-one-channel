@@ -3,7 +3,7 @@
 // refetch is in flight, so the UI never flashes blank on a poll tick.
 "use client";
 
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   fetchChannels,
@@ -13,14 +13,17 @@ import {
   fetchPosts,
   fetchStats,
   fetchStories,
+  forcePublish,
+  markShouldNotHavePosted,
 } from "@/lib/api";
+import type { PostFilters, StatsRange } from "@/lib/types";
 
 export const POLL_INTERVAL_MS = 10_000;
 
-export function usePosts(channel: string, source: string | null, limit: number, offset: number) {
+export function usePosts(channel: string, filters: PostFilters, limit: number, offset: number) {
   return useQuery({
-    queryKey: ["posts", channel, source, limit, offset],
-    queryFn: () => fetchPosts(channel, source, limit, offset),
+    queryKey: ["posts", channel, filters.source, filters.statuses, filters.q, limit, offset],
+    queryFn: () => fetchPosts(channel, filters, limit, offset),
     refetchInterval: POLL_INTERVAL_MS,
     placeholderData: keepPreviousData,
   });
@@ -35,10 +38,10 @@ export function useStories(channel: string) {
   });
 }
 
-export function useStats(channel: string) {
+export function useStats(channel: string, range: StatsRange = "7d") {
   return useQuery({
-    queryKey: ["stats", channel],
-    queryFn: () => fetchStats(channel),
+    queryKey: ["stats", channel, range],
+    queryFn: () => fetchStats(channel, range),
     refetchInterval: POLL_INTERVAL_MS,
     placeholderData: keepPreviousData,
   });
@@ -84,5 +87,21 @@ export function useHealth() {
     queryFn: fetchHealth,
     refetchInterval: POLL_INTERVAL_MS,
     retry: 2,
+  });
+}
+
+// Overrule / regret actions from the Posts tab. On success the feed and stats
+// are refetched at once so the new status shows without waiting for a poll.
+export function useItemAction(channel: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, itemId, note }: { kind: "force" | "regret"; itemId: number; note?: string }) =>
+      kind === "force"
+        ? forcePublish(channel, itemId, note)
+        : markShouldNotHavePosted(channel, itemId, note),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["posts", channel] });
+      client.invalidateQueries({ queryKey: ["stats", channel] });
+    },
   });
 }

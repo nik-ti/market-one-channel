@@ -9,9 +9,13 @@ export interface PostItem {
   source_name: string;
   title: string;
   body: string;
+  url: string;
   story_id: number | null;
   status: ItemStatus;
   status_reason: string;
+  importance: number;
+  market: string;
+  topic: string;
 }
 
 export interface PostsResponse {
@@ -21,6 +25,15 @@ export interface PostsResponse {
   total: number;
   limit: number;
   offset: number;
+  // Per-status counts for the current source + keyword filter, ignoring the
+  // status filter itself — the numbers on the status chips.
+  status_counts: Record<string, number>;
+}
+
+export interface PostFilters {
+  source: string | null;
+  statuses: string[];
+  q: string;
 }
 
 export interface StoryPost {
@@ -67,12 +80,60 @@ export interface TrendPoint {
   count: number;
 }
 
+export type StatsRange = "24h" | "7d" | "30d" | "all";
+
+export interface WindowTotals {
+  ingested: number;
+  published: number;
+}
+
+export interface StatsSummary extends WindowTotals {
+  previous: WindowTotals | null;
+  publish_rate: number | null;
+  median_minutes_to_publish: number | null;
+  queued_now: number;
+  held_now: number;
+  live_stories: number;
+  last_published_at: string | null;
+}
+
+export interface ActivityPoint {
+  bucket: string;
+  ingested: number;
+  published: number;
+}
+
+export interface StatusCount {
+  status: string;
+  count: number;
+}
+
+export interface SourcePerformance {
+  source_name: string;
+  total: number;
+  published: number;
+  folded: number;
+  duplicate: number;
+  filtered: number;
+  avg_importance: number | null;
+}
+
 export interface StatsResponse {
   channel: string;
   ready: boolean;
+  range: StatsRange;
   sources_count: SourceCount[];
   gate_outcomes: GateOutcomes;
   trends: TrendPoint[];
+  summary: StatsSummary | null;
+  activity: ActivityPoint[];
+  status_breakdown: StatusCount[];
+  sources: SourcePerformance[];
+  importance: { importance: number; count: number; published: number }[];
+  markets: { market: string; count: number; published: number }[];
+  editor: { approve: number; decline: number; top_rules: { rule: string; count: number }[] };
+  dedup: { rung: string; dropped: number; kept: number }[];
+  hour_of_day: { hour: number; count: number }[];
 }
 
 export interface GraphNode {

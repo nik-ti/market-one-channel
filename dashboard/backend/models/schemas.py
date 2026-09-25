@@ -13,9 +13,13 @@ class PostItem(BaseModel):
     source_name: str
     title: str
     body: str
+    url: str = ""
     story_id: int | None = None
     status: str
     status_reason: str
+    importance: int = 0
+    market: str = ""
+    topic: str = ""
 
 
 class PostsResponse(BaseModel):
@@ -25,6 +29,7 @@ class PostsResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    status_counts: dict[str, int] = {}
 
 
 class StoryPost(BaseModel):
@@ -71,12 +76,92 @@ class TrendPoint(BaseModel):
     count: int
 
 
+class WindowTotals(BaseModel):
+    ingested: int
+    published: int
+
+
+class StatsSummary(WindowTotals):
+    previous: WindowTotals | None = None
+    publish_rate: float | None = None
+    median_minutes_to_publish: float | None = None
+    queued_now: int
+    held_now: int
+    live_stories: int
+    last_published_at: str | None = None
+
+
+class ActivityPoint(BaseModel):
+    bucket: str
+    ingested: int
+    published: int
+
+
+class StatusCount(BaseModel):
+    status: str
+    count: int
+
+
+class SourcePerformance(BaseModel):
+    source_name: str
+    total: int
+    published: int
+    folded: int
+    duplicate: int
+    filtered: int
+    avg_importance: float | None = None
+
+
+class ImportanceCount(BaseModel):
+    importance: int
+    count: int
+    published: int
+
+
+class MarketCount(BaseModel):
+    market: str
+    count: int
+    published: int
+
+
+class RuleCount(BaseModel):
+    rule: str
+    count: int
+
+
+class EditorStats(BaseModel):
+    approve: int
+    decline: int
+    top_rules: list[RuleCount]
+
+
+class DedupRung(BaseModel):
+    rung: str
+    dropped: int
+    kept: int
+
+
+class HourCount(BaseModel):
+    hour: int
+    count: int
+
+
 class StatsResponse(BaseModel):
     channel: str
     ready: bool
+    range: str
     sources_count: list[SourceCount]
     gate_outcomes: GateOutcomes
     trends: list[TrendPoint]
+    summary: StatsSummary | None = None
+    activity: list[ActivityPoint]
+    status_breakdown: list[StatusCount]
+    sources: list[SourcePerformance]
+    importance: list[ImportanceCount]
+    markets: list[MarketCount]
+    editor: EditorStats
+    dedup: list[DedupRung]
+    hour_of_day: list[HourCount]
 
 
 class GraphNode(BaseModel):

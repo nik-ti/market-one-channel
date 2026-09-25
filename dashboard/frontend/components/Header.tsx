@@ -44,13 +44,17 @@ export function Header({
   }, [dark]);
 
   return (
-    <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-primary px-4 py-3">
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-border bg-surface-primary px-4 py-2 sm:py-3">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-base font-semibold text-ink-primary">Simple Flow Channels</span>
+        {/* The full name pushed the icons onto a second row at phone width. */}
+        <span className="shrink-0 text-base font-semibold text-ink-primary">
+          <span className="sm:hidden">SF</span>
+          <span className="hidden sm:inline">Simple Flow Channels</span>
+        </span>
         <ChannelSwitcher channel={channel} channels={channels} onChange={onChannelChange} />
       </div>
 
-      <div className="relative flex items-center gap-1">
+      <div className="relative flex shrink-0 items-center gap-0.5 sm:gap-1">
         <Button
           variant="ghost"
           size="icon"

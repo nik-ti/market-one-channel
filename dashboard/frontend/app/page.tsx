@@ -3,19 +3,20 @@
 // health-check poll.
 //
 // The chosen channel lives in the URL's ?channel= query param, not
-// localStorage, so a link to this dashboard carries the channel with it.
+// localStorage, so a link to this dashboard carries the channel with it. The
+// open tab does too (?tab=stats), so a reload stays where you were.
 // Reading it needs next/navigation's useSearchParams, which Next.js requires
 // to sit under a Suspense boundary even in an all-client page — hence the
 // HomeContent/Home split below.
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { GraphViewer } from "@/components/GraphViewer";
 import { Header } from "@/components/Header";
 import { NodesViewer } from "@/components/NodesViewer";
-import { PostsFeed } from "@/components/PostsFeed";
+import { POSTS_PARAMS, PostsFeed } from "@/components/PostsFeed";
 import { StatsPanel } from "@/components/StatsPanel";
 import { StoriesView } from "@/components/StoriesView";
 import { TabNav, TABS, type Tab } from "@/components/TabNav";
@@ -33,11 +34,30 @@ const TAB_CONTENT: Record<Tab, React.ComponentType<{ channel: string }>> = {
 };
 
 function HomeContent() {
-  const [tab, setTab] = useState<Tab>(TABS[0]);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const channel = searchParams.get("channel") || DEFAULT_CHANNEL;
+  const tabParam = searchParams.get("tab");
+  const tab: Tab = TABS.find((t) => t.toLowerCase() === tabParam) ?? TABS[0];
+
+  const replaceParams = useCallback(
+    (params: URLSearchParams) => {
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname]
+  );
+
+  const setTab = useCallback(
+    (next: Tab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === TABS[0]) params.delete("tab");
+      else params.set("tab", next.toLowerCase());
+      replaceParams(params);
+    },
+    [searchParams, replaceParams]
+  );
 
   const health = useHealth();
   const { data: channelsData } = useChannels();
@@ -48,10 +68,12 @@ function HomeContent() {
       const params = new URLSearchParams(searchParams.toString());
       if (next === DEFAULT_CHANNEL) params.delete("channel");
       else params.set("channel", next);
-      const qs = params.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      // A source or search from the last channel makes no sense once the
+      // underlying data is a different pipeline.
+      for (const key of POSTS_PARAMS) params.delete(key);
+      replaceParams(params);
     },
-    [router, pathname, searchParams]
+    [searchParams, replaceParams]
   );
 
   // A stale or mistyped ?channel= (an old shared link, a typo) snaps back to

@@ -1,5 +1,6 @@
 // Status pill used by the Posts table and Stories cards. Colors map 1:1 to
 // SPEC.md's status color table.
+import { statusInfo } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 export type BadgeTone =
@@ -58,4 +59,21 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 
 export function statusTone(status: string): BadgeTone {
   return STATUS_TONE[status] ?? "neutral";
+}
+
+// A status pill coloured and labelled from lib/status.ts, with the status's
+// meaning as a tooltip. Used wherever a raw items.status is shown.
+
+export function StatusBadge({ status }: { status: string }) {
+  const info = statusInfo(status);
+  return (
+    <span
+      title={info.hint || undefined}
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium text-ink-primary"
+      style={{ background: `${info.color}1f` }}
+    >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: info.color }} />
+      {info.label}
+    </span>
+  );
 }

@@ -3,9 +3,11 @@
 // works against localhost in dev and the VPS through Vercel in prod.
 import type {
   ChannelsResponse,
+  PostFilters,
   GraphResponse,
   NodesResponse,
   PostsResponse,
+  StatsRange,
   StatsResponse,
   StoriesResponse,
 } from "./types";
@@ -28,18 +30,53 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function fetchPosts(channel: string, source: string | null, limit: number, offset: number) {
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // FastAPI puts the human-readable reason in `detail` (e.g. "that item is
+    // already published"); surface it instead of a bare status code.
+    const detail = typeof data?.detail === "string" ? data.detail : `${res.status} ${res.statusText}`;
+    throw new Error(detail);
+  }
+  return data as T;
+}
+
+export function fetchPosts(channel: string, filters: PostFilters, limit: number, offset: number) {
   const params = new URLSearchParams({ channel, limit: String(limit), offset: String(offset) });
-  if (source) params.set("source", source);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.statuses.length) params.set("status", filters.statuses.join(","));
+  if (filters.q.trim()) params.set("q", filters.q.trim());
   return get<PostsResponse>(`/posts?${params.toString()}`);
+}
+
+// The two write actions (backend api/actions.py): overrule a rejection, or
+// label a post that should not have gone out. Both record a human verdict.
+export function forcePublish(channel: string, itemId: number, note = "") {
+  return post<{ ok: boolean; message: string }>(
+    `/actions/force?${new URLSearchParams({ channel }).toString()}`,
+    { item_id: itemId, note }
+  );
+}
+
+export function markShouldNotHavePosted(channel: string, itemId: number, note = "") {
+  return post<{ ok: boolean }>(
+    `/actions/should-not-have-posted?${new URLSearchParams({ channel }).toString()}`,
+    { item_id: itemId, note }
+  );
 }
 
 export function fetchStories(channel: string) {
   return get<StoriesResponse>(`/stories?${new URLSearchParams({ channel }).toString()}`);
 }
 
-export function fetchStats(channel: string) {
-  return get<StatsResponse>(`/stats?${new URLSearchParams({ channel }).toString()}`);
+export function fetchStats(channel: string, range: StatsRange = "7d") {
+  return get<StatsResponse>(`/stats?${new URLSearchParams({ channel, range }).toString()}`);
 }
 
 export function fetchGraph(channel: string) {
