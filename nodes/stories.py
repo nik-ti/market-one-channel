@@ -44,7 +44,7 @@ from datetime import datetime, timedelta, timezone
 
 import config
 from brain import persona_loader
-from utils import db, logger as log_setup, openrouter
+from utils import db, logger as log_setup, openrouter, textclean
 
 log = log_setup.get("stories")
 
@@ -374,6 +374,58 @@ GATE_SCHEMA = {
 }
 
 
+# Above this, what is arriving reads almost exactly like something already
+# posted on this story. Measured on every follow-up post the channel has made:
+# genuine repeats scored 0.80-0.89 and everything else 0.39-0.77, with nothing
+# in between. It is deliberately NOT a rule — story 54 scored 0.80 on "Bitcoin
+# falls below $77,000" right after "Bitcoin crosses $79,000", and that is a
+# reversal, not a repeat. Embeddings cannot tell up from down. So the number is
+# handed to the gate as evidence and the gate still decides, the same division
+# of labour dedup already uses.
+ECHO_FLOOR = 0.79
+
+
+async def _closest_published(story: Story) -> str:
+    """The post this story already made that the incoming items most resemble.
+
+    Returns a block for the gate's prompt, or "" when nothing is close or the
+    embeddings are unavailable — in which case the gate judges as it did before.
+    """
+    if not story.posts or not story.pending:
+        return ""
+    try:
+        from utils import embeddings
+        incoming = " ".join(f"{i['title'] or ''} {(i['body'] or '')[:300]}"
+                            for i in story.pending[-3:])
+        vector = await embeddings.embed_one(textclean.for_embedding(incoming))
+        if vector is None:
+            return ""
+        # Only the recent ones: a story can run to twelve posts, and echoing
+        # something said that long ago is both unlikely and cheap to forgive.
+        recent = list(enumerate(story.posts))[-6:]
+        scored = []
+        for index, post in recent:
+            other = await embeddings.embed_one(textclean.for_embedding(post))
+            if other is not None:
+                scored.append((embeddings.cosine(vector, other), index, post))
+        if not scored:
+            return ""
+        score, index, post = max(scored)
+    except Exception as error:  # noqa: BLE001 - evidence, never the decision
+        log.debug("Could not measure the echo for story %s: %s", story.id, error)
+        return ""
+
+    if score < ECHO_FLOOR:
+        return ""
+    return (f"\n\n## Careful — this sounds like something you already said\n"
+            f"What has just come in resembles [post {index + 1}] very closely "
+            f"({score:.2f} out of 1.00):\n\n{post}\n\n"
+            f"That score cannot tell a repeat from a reversal, so read both. If "
+            f"the new item only restates that post with a different figure, hold "
+            f"it. If it turns the story around or adds a state that post did not "
+            f"describe, post it and say which.")
+
+
 async def should_post(story: Story, now: datetime) -> dict:
     """Decide whether a story's pending items are worth a post. Fails open to posting.
 
@@ -421,6 +473,7 @@ async def should_post(story: Story, now: datetime) -> dict:
                           f"{quiet:.0f} min since the last post"}
 
     known = "\n\n".join(f"[post {i + 1}]\n{p}" for i, p in enumerate(story.posts))
+    echo = await _closest_published(story)
     pending = story.pending[-config.STORY_MAX_PENDING:]
     fresh = "\n".join(
         f"- {i['source_name']}: {(i['title'] or '')[:180]}" for i in pending
@@ -433,7 +486,8 @@ async def should_post(story: Story, now: datetime) -> dict:
                 user=(f"## What the reader already knows\n"
                       f"({len(story.posts)} posts on this story so far, the last "
                       f"one {quiet:.0f} minutes ago)\n\n{known}\n\n"
-                      f"## What has come in since ({len(pending)} items)\n\n{fresh}"),
+                      f"## What has come in since ({len(pending)} items)\n\n{fresh}"
+                      f"{echo}"),
                 schema=GATE_SCHEMA, schema_name="gate",
                 temperature=0.0, max_tokens=400,
             ),

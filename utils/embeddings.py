@@ -166,3 +166,12 @@ def most_similar(
     except Exception as error:  # noqa: BLE001
         log.warning("Similarity comparison failed: %s", error)
         return []
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+    """How alike two vectors are, 0 to 1. Returns 0 if either has no length."""
+    first, second = np.asarray(a, dtype=_DTYPE), np.asarray(b, dtype=_DTYPE)
+    if first.shape != second.shape:
+        return 0.0
+    lengths = np.linalg.norm(first) * np.linalg.norm(second)
+    return float(first @ second / lengths) if lengths else 0.0
