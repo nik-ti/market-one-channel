@@ -447,6 +447,18 @@ def recent_overrides(limit: int = 100) -> list[sqlite3.Row]:
     ))
 
 
+def recent_published_posts(hours: int, limit: int) -> list[sqlite3.Row]:
+    """What the channel actually sent recently, newest first — see nodes/echo.py."""
+    return list(conn().execute(
+        """SELECT p.post_html, p.sent_at
+             FROM posts p
+            WHERE p.status = 'sent' AND p.telegram_message_id IS NOT NULL
+              AND p.sent_at > datetime('now', ?)
+            ORDER BY p.sent_at DESC LIMIT ?""",
+        (f"-{int(hours)} hours", int(limit)),
+    ))
+
+
 def set_article_text(item_id: int, text: str) -> None:
     """Keep the article we read for this item, so its URL is never fetched twice."""
     conn().execute("UPDATE items SET article_text = ? WHERE id = ?", (text, item_id))

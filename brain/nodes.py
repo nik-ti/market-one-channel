@@ -19,7 +19,7 @@ from typing import Any
 
 import config
 from brain import persona_loader
-from nodes import article, dedup, editor, publisher, sorter, stories, writer
+from nodes import article, dedup, echo, editor, publisher, sorter, stories, writer
 from utils import db, logger as log_setup
 
 log = log_setup.get("brain")
@@ -77,6 +77,10 @@ def route_after_gatekeeper(state: dict) -> str:
 
 def route_after_writer(state: dict) -> str:
     return "end" if state.get("outcome") else "edit"
+
+
+def route_after_repeat_check(state: dict) -> str:
+    return "end" if state.get("outcome") else "send"
 
 
 def route_after_editor(state: dict) -> str:
@@ -466,6 +470,30 @@ async def editor_node(state: dict) -> dict[str, Any]:
 # STATION 6: send it
 # =============================================================================
 
+async def repeat_check_node(state: dict) -> dict[str, Any]:
+    """Refuse to send a post that tells the reader what a recent post already did.
+
+    The exit, so nothing routes around it. Everything upstream asks a narrower
+    question: dedup compares wire items, the gatekeeper compares one story's
+    posts and only where it reasons. This compares the finished post against
+    everything the channel published recently.
+
+    A held item keeps its story, so its content still reaches the reader through
+    that story's next post.
+    """
+    if state.get("dry_run"):
+        return {}
+
+    repeats, why = await echo.repeats_something_published(state["post_html"])
+    if not repeats:
+        return {}
+
+    item = state["item"]
+    db.set_post_status(state["post_id"], "declined")
+    db.set_item_status(item["id"], "held", why)
+    return {"outcome": "held"}
+
+
 async def publish_node(state: dict) -> dict[str, Any]:
     """Send the approved post, then book it against its story. Dry-run stops here."""
     if state.get("dry_run"):
@@ -510,5 +538,7 @@ STAGES: dict[str, tuple] = {
                         {"edit": "next", "end": "end"}),
     "editor":          (editor_node,           route_after_editor,
                         {"publish": "next", "rewrite": "writer", "end": "end"}),
+    "repeat_check":    (repeat_check_node,     route_after_repeat_check,
+                        {"send": "next", "end": "end"}),
     "publish":         (publish_node,          None, {}),
 }

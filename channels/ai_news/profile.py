@@ -57,5 +57,6 @@ PIPELINE = [
     "gatekeeper",
     "writer",
     "editor",
+    "repeat_check",
     "publish",
 ]

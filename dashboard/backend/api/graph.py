@@ -39,6 +39,7 @@ _STATION_INFO: dict[str, tuple[str, str]] = {
     "gatekeeper": ("Gatekeeper", "Has the story moved? Post, hold, or this is the wrong story."),
     "writer": ("Writer", "Writes the post in the channel's voice."),
     "editor": ("Editor", "Checks the finished post against its source. The one station that fails closed."),
+    "repeat_check": ("Repeat check", "The exit. Refuses a finished post that tells the reader what a recent post already did."),
     "publish": ("Publish", "Sends it to Telegram and books it against its story."),
 }
 

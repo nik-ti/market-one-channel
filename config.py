@@ -463,3 +463,15 @@ ARTICLE_BROWSER_TIMEOUT_SECONDS = _get_int("ARTICLE_BROWSER_TIMEOUT_SECONDS", 60
 # What is kept. The writer is shown the source in full; an entire long-read
 # would crowd out the wire items it is meant to be summarising.
 ARTICLE_MAX_CHARS = _get_int("ARTICLE_MAX_CHARS", 6000)
+
+# =============================================================================
+# THE LAST CHECK BEFORE SENDING
+# =============================================================================
+# See nodes/echo.py. The shortlist is deliberately wide because no cutoff
+# separates a repeat from a genuine step forward — measured, they interleave —
+# so the judge does the deciding and this number only decides who gets read.
+ECHO_SHORTLIST = _get_float("ECHO_SHORTLIST", 0.72)
+
+# How far back a reader remembers. Apple's repeat came three days later.
+ECHO_WINDOW_HOURS = _get_int("ECHO_WINDOW_HOURS", 120)
+ECHO_MAX_COMPARED = _get_int("ECHO_MAX_COMPARED", 40)
