@@ -365,7 +365,13 @@ STORY_TIMEOUT_SECONDS = _get_int("STORY_TIMEOUT_SECONDS", 30)
 # How many open stories the placement step is shown. It answers with an index
 # into this list, so a long one makes the prompt long and the numbering easy to
 # get wrong; the oldest candidates are the least likely answers anyway.
-STORY_MAX_OPEN = _get_int("STORY_MAX_OPEN", 12)
+#
+# Raised with STORY_IDLE_HOURS below. A story that is open but not shown is
+# invisible to placement, which opens a second story for it — exactly how the
+# same Apple news was published twice. The cap must stay above the number of
+# stories the idle window actually leaves open, or the longer window buys
+# nothing for the half it hides.
+STORY_MAX_OPEN = _get_int("STORY_MAX_OPEN", 30)
 
 # How many unposted items the gate and the writer are shown from one story.
 # Keeps both prompts bounded no matter how much piles up; anything outside the
@@ -378,7 +384,10 @@ STORY_MAX_PENDING = _get_int("STORY_MAX_PENDING", 12)
 # 12 hours split a war into eight stories in a six-day replay: it went quiet
 # overnight, and every morning was a "new" story whose first post always goes
 # out. A running situation stays one story across a quiet night.
-STORY_IDLE_HOURS = _get_int("STORY_IDLE_HOURS", 36)
+# 36 hours was still too short: Apple's $5 trillion cap was covered, its story
+# closed, the news came back three days later and was published again as a new
+# story. Five days is how long a reader remembers.
+STORY_IDLE_HOURS = _get_int("STORY_IDLE_HOURS", 120)
 
 # A hard end, whatever the story is doing. Without it a broad situation stays
 # live indefinitely by absorbing one item every eleven hours, and slowly starts
